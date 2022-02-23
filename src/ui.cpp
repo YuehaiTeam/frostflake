@@ -8,11 +8,15 @@ void uiOnCustomMessage(Control *control, int message, WPARAM wParam, LPARAM lPar
     if (message == WM_AUTHENCATION) {
         windowPtr->restore();
         windowPtr->setTopMost(true);
+        string origin = authData.origin;
+        if (origin == "null") {
+            origin = "本地网页";
+        }
         HRESULT hr;
         wstring title = ToWString("授权管理 - 椰羊");
-        wstring header = ToWString(string(authData.origin) + " 申请控制您的设备");
+        wstring header = ToWString(origin + " 申请控制您的设备");
         wstring body = ToWString("该网页将可以模拟操作你的键盘和鼠标，请确保您信任该网页");
-        wstring allowstr = ToWString("授权\n即允许 " + authData.origin + " 控制您的设备");
+        wstring allowstr = ToWString("授权\n即允许 " + origin + " 控制您的设备");
         wstring denystr = ToWString("拒绝\n如果你不知道发生了什么");
 
         TASKDIALOGCONFIG tdc = {sizeof(TASKDIALOGCONFIG)};
@@ -40,12 +44,12 @@ void uiOnCustomMessage(Control *control, int message, WPARAM wParam, LPARAM lPar
 }
 
 void uiThread() {
-    Window window(ToWString("椰羊·自动操作"), 300, 150);
+    Window window(ToWString("椰羊·自动操作 v" + string(VERSION)), 300, 150);
     windowPtr = &window;
     window.setBackground(Brush(Hex(0xffffff)));
     window.setGlobalIcon(Icon(1));
     window.setOnCustomMessage(uiOnCustomMessage);
-    TextView lbl(&window, ToWString("椰羊·自动操作 v" + string(VERSION)));
+    TextView lbl(&window, ToWString("椰羊·自动操作 v" + string(VERSION)+"\n请在网页端启用自动控制功能"));
     lbl.setTextColor(Hex(0x2b3399));
     lbl.setBackground(Brush(Hex(0xffffff)));
     lbl.setFont(ToWString("Microsoft Yahei UI"));
