@@ -13,6 +13,7 @@ using namespace std;
 httplib::Server svr;
 Window *windowPtr = nullptr;
 WM_AUTHENCATION_DATA authData;
+time_t lastHotkeyPressed = 0;
 
 GetDpiForMonitorProc GetDpiForMonitor_;
 SetProcessDpiAwarenessContextProc SetProcessDpiAwarenessContext_;

@@ -13,6 +13,7 @@ extern Window *windowPtr;
 extern httplib::Server svr;
 extern WM_AUTHENCATION_DATA authData;
 extern GetDpiForMonitorProc GetDpiForMonitor_;
+extern time_t lastHotkeyPressed;
 
 unordered_map<string, string> tokens;
 
@@ -55,6 +56,15 @@ boolean apiPreChck(const httplib::Request &req, httplib::Response &res) {
         json11::Json result = json11::Json::object{
             {"msg", "Bad Token"}};
         jsonResponse(res, result, 401);
+        return false;
+    }
+    if (std::time(0) - lastHotkeyPressed < 5) {
+        // Stop because hotkey pressed in the last 5 seconds
+        json11::Json result = json11::Json::object{
+            {"msg", "Stopped by user"},
+            {"time", (long)lastHotkeyPressed}
+        };
+        jsonResponse(res, result, 410);
         return false;
     }
     return true;
