@@ -15,6 +15,8 @@ extern WM_AUTHENCATION_DATA authData;
 extern GetDpiForMonitorProc GetDpiForMonitor_;
 extern time_t lastHotkeyPressed;
 
+json11::Json cvAutotrackCommand(json11::Json cmd);
+
 unordered_map<string, string> tokens;
 
 void jsonResponse(httplib::Response &res, json11::Json &obj, int code = 200) {
@@ -38,32 +40,36 @@ void emptyResponse(httplib::Response &res) {
 }
 
 boolean apiPreChck(const httplib::Request &req, httplib::Response &res) {
-    if (req.headers.find("Origin") == req.headers.end()) {
-        json11::Json result = json11::Json::object{
-            {"msg", "Bad Origin"}};
-        jsonResponse(res, result, 400);
-        return false;
-    }
-    auto auth = req.headers.find("Authorization");
-    if (auth == req.headers.end()) {
-        json11::Json result = json11::Json::object{
-            {"msg", "Unauthorized"}};
-        jsonResponse(res, result, 401);
-        return false;
-    }
-    string token = auth->second.substr(7);
-    if (auth->second.find("Bearer ") != 0 || tokens.find(token) == tokens.end() || tokens[token] != req.headers.find("Origin")->second) {
-        json11::Json result = json11::Json::object{
-            {"msg", "Bad Token"}};
-        jsonResponse(res, result, 401);
-        return false;
+    if (req.remote_addr != "WS") {
+        if (req.headers.find("Origin") == req.headers.end()) {
+            json11::Json result = json11::Json::object{
+                {"msg", "Bad Origin"}};
+            jsonResponse(res, result, 400);
+            return false;
+        }
+        auto auth = req.headers.find("Authorization");
+        if (auth == req.headers.end()) {
+            json11::Json result = json11::Json::object{
+                {"msg", "Unauthorized"}};
+            jsonResponse(res, result, 401);
+            return false;
+        }
+        string token = auth->second.substr(7);
+        if (
+            auth->second.find("Bearer ") != 0 ||
+            tokens.find(token) == tokens.end() ||
+            tokens[token] != req.headers.find("Origin")->second) {
+            json11::Json result = json11::Json::object{
+                {"msg", "Bad Token"}};
+            jsonResponse(res, result, 401);
+            return false;
+        }
     }
     if (std::time(0) - lastHotkeyPressed < 5) {
         // Stop because hotkey pressed in the last 5 seconds
         json11::Json result = json11::Json::object{
             {"msg", "Stopped by user"},
-            {"time", (long)lastHotkeyPressed}
-        };
+            {"time", (long)lastHotkeyPressed}};
         jsonResponse(res, result, 410);
         return false;
     }
@@ -144,7 +150,7 @@ void activeWindow(HWND hWnd) {
 
 void httpThread() {
     svr.set_keep_alive_timeout(300);
-    svr.set_keep_alive_max_count(30);
+    svr.set_keep_alive_max_count(1000);
     svr.Options("/(.*?)", [](const httplib::Request &req, httplib::Response &res) {
         json11::Json obj = json11::Json::object{};
         jsonResponse(res, obj, 200);
@@ -284,10 +290,8 @@ void httpThread() {
         if (hWnd == 0) {
             hWnd = GetActiveWindow();
         }
-        LRESULT result = SendMessage(hWnd, msg, wParam, lParam);
-        json11::Json obj = json11::Json::object{
-            {"result", result}};
-        jsonResponse(res, obj);
+        SendMessage(hWnd, msg, wParam, lParam);
+        emptyResponse(res);
     });
     svr.Post("/api/mouse_event", [](const httplib::Request &req, httplib::Response &res) {
         if (!apiPreChck(req, res))
@@ -341,6 +345,19 @@ void httpThread() {
         SetCursorPos(x, y);
         emptyResponse(res);
     });
-
-    svr.listen("127.0.0.1", 32333);
+    svr.Post("/api/cvautotrack", [](const httplib::Request &req, httplib::Response &res) {
+        if (!apiPreChck(req, res))
+            return;
+        string body = req.body;
+        string err = "";
+        json11::Json json = json11::Json::parse(body, err);
+        if (err != "") {
+            json11::Json result = json11::Json::object{
+                {"msg", "Bad Request"}};
+            jsonResponse(res, result, 400);
+            return;
+        }
+        json11::Json resjson = cvAutotrackCommand(json);
+        jsonResponse(res, resjson, 200);
+    });
 }

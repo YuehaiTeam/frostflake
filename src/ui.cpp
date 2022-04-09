@@ -1,4 +1,4 @@
-#include "../MfcClass/Manager.h"
+#include "../lib/MfcClass/Manager.h"
 #include "../lib/struct.h"
 #include "../version.h"
 #include <ctime>
@@ -6,6 +6,7 @@ using namespace std;
 extern Window *windowPtr;
 extern WM_AUTHENCATION_DATA authData;
 extern time_t lastHotkeyPressed;
+extern string localAuth;
 
 void uiOnCustomMessage(Control *control, int message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_AUTHENCATION) {
@@ -46,7 +47,7 @@ void uiOnCustomMessage(Control *control, int message, WPARAM wParam, LPARAM lPar
     }
 }
 
-LRESULT CALLBACK  uiKeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK uiKeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
     KBDLLHOOKSTRUCT *pKeyBoard = (KBDLLHOOKSTRUCT *)lParam;
     if (wParam == WM_KEYDOWN) {
         if (pKeyBoard->vkCode == VK_LWIN || pKeyBoard->vkCode == VK_RWIN) {
@@ -64,7 +65,11 @@ void uiThread() {
     window.setBackground(Brush(Hex(0xffffff)));
     window.setGlobalIcon(Icon(1));
     window.setOnCustomMessage(uiOnCustomMessage);
-    TextView lbl(&window, ToWString("椰羊·自动操作 v" + string(VERSION) + "\n请在网页端启用自动控制功能"));
+    string localText = "\n请在网页端启用自动控制功能";
+    if (localAuth != "") {
+        localText = "";
+    }
+    TextView lbl(&window, ToWString("椰羊·自动操作 v" + string(VERSION) + localText));
     lbl.setTextColor(Hex(0x2b3399));
     lbl.setBackground(Brush(Hex(0xffffff)));
     lbl.setFont(ToWString("Microsoft Yahei UI"));

@@ -9,6 +9,12 @@
 #include "../lib/httplib.h"
 #include "../lib/struct.h"
 
+#include <websocketpp/config/asio_no_tls.hpp>
+#include <websocketpp/server.hpp>
+
+typedef websocketpp::server<websocketpp::config::asio> server;
+server wss;
+
 using namespace std;
 httplib::Server svr;
 Window *windowPtr = nullptr;
@@ -17,9 +23,11 @@ time_t lastHotkeyPressed = 0;
 
 GetDpiForMonitorProc GetDpiForMonitor_;
 SetProcessDpiAwarenessContextProc SetProcessDpiAwarenessContext_;
+string localAuth = "";
 
 void httpThread();
 void uiThread();
+void ws_server();
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow) {
     SetProcessDpiAwarenessContext_ = (SetProcessDpiAwarenessContextProc)GetProcAddress(GetModuleHandle(TEXT("user32.dll")), "SetProcessDpiAwarenessContext");
@@ -30,11 +38,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     if (NULL != SetProcessDpiAwarenessContext_) {
         SetProcessDpiAwarenessContext_(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
+    std::string argv = string(lpCmdLine) + string(" ");
+    // argv includes '--local-auth'
+    if (argv.find("--local-auth=") != std::string::npos) {
+        localAuth = argv.substr(argv.find("=") + 1, argv.find(" ") - argv.find("=") - 1);
+    }
+
     thread tUi(uiThread);
-    thread tHttp(httpThread);
-    tHttp.detach();
+    thread tHttp(ws_server);
     tUi.join();
-    svr.stop();
-    cout << "exit" << endl;
+    wss.stop();
+    TerminateThread(tHttp.native_handle(), 0);
+
+    cout << "exit: " << wss.stopped() << endl;
     return 0;
 }
