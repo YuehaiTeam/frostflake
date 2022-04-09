@@ -14,24 +14,40 @@ extern httplib::Server svr;
 extern WM_AUTHENCATION_DATA authData;
 extern GetDpiForMonitorProc GetDpiForMonitor_;
 extern time_t lastHotkeyPressed;
+extern std::string localAuth;
 
+typedef struct IupdateInfo {
+    string status;
+    long downloaded;
+    long total;
+} IupdateInfo;
+
+void runYasInNewThread(std::string &argv);
+std::string getYasJsonContent();
 json11::Json cvAutotrackCommand(json11::Json cmd);
+void checkAndDownloadInNewThread(std::wstring infourl, IupdateInfo *info);
 
 unordered_map<string, string> tokens;
+unordered_map<string, IupdateInfo *> updateMap;
 
-void jsonResponse(httplib::Response &res, json11::Json &obj, int code = 200) {
+void textResponse(httplib::Response &res, std::string obj, std::string content_type, int code = 200) {
     res.status = code;
     res.set_header("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Max-Age", "600");
+    res.set_header("Access-Control-Allow-Private-Network", "true");
     res.set_header("Server", string("cocogoat-control/") + string(VERSION));
-    res.set_header("Content-Type", "application/json");
-    res.set_content(obj.dump(), "application/json");
+    // make it const
+    res.set_content(obj, content_type.c_str());
 }
 
-void emptyResponse(httplib::Response &res) {
-    res.status = 204;
+void jsonResponse(httplib::Response &res, json11::Json &obj, int code = 200) {
+    textResponse(res, obj.dump(), "application/json", code);
+}
+
+void emptyResponse(httplib::Response &res, int status = 204) {
+    res.status = status;
     res.set_header("Access-Control-Allow-Headers", "Authorization, Content-Type");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
     res.set_header("Access-Control-Allow-Origin", "*");
@@ -55,6 +71,9 @@ boolean apiPreChck(const httplib::Request &req, httplib::Response &res) {
             return false;
         }
         string token = auth->second.substr(7);
+        if (token == localAuth) {
+            return true;
+        }
         if (
             auth->second.find("Bearer ") != 0 ||
             tokens.find(token) == tokens.end() ||
@@ -359,5 +378,74 @@ void httpThread() {
         }
         json11::Json resjson = cvAutotrackCommand(json);
         jsonResponse(res, resjson, 200);
+    });
+    svr.Post("/api/yas", [](const httplib::Request &req, httplib::Response &res) {
+        if (!apiPreChck(req, res))
+            return;
+        string body = req.body;
+        string err = "";
+        json11::Json json = json11::Json::parse(body, err);
+        if (err != "") {
+            json11::Json result = json11::Json::object{
+                {"msg", "Bad Request"}};
+            jsonResponse(res, result, 400);
+            return;
+        }
+        // argv string from json
+        string argv = json["argv"].string_value();
+        // run yas
+        runYasInNewThread(argv);
+        emptyResponse(res, 201);
+    });
+    svr.Get("/api/yas", [](const httplib::Request &req, httplib::Response &res) {
+        if (!apiPreChck(req, res))
+            return;
+        string content = getYasJsonContent();
+        textResponse(res, content, "application/json", 200);
+    });
+    svr.Post("/api/upgrade/(.*?)", [](const httplib::Request &req, httplib::Response &res) {
+        if (!apiPreChck(req, res))
+            return;
+        string key = string(req.matches[1]);
+        // key should be only 0-9a-zA-Z
+        if (key.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != string::npos) {
+            json11::Json result = json11::Json::object{
+                {"msg", "Bad Request"}};
+            jsonResponse(res, result, 400);
+            return;
+        }
+        string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/") + key + string(".txt");
+        IupdateInfo *info = NULL;
+        // check if exists
+        auto it = updateMap.find(key);
+        if (it == updateMap.end()) {
+            info = new IupdateInfo();
+        } else {
+            info = it->second;
+        }
+        info->status = "waiting";
+        info->downloaded = 0;
+        info->total = 0;
+        checkAndDownloadInNewThread(ToWString(infoUrl), info);
+        updateMap.insert_or_assign(key, info);
+        emptyResponse(res, 201);
+    });
+    svr.Get("/api/upgrade/(.*?)", [](const httplib::Request &req, httplib::Response &res) {
+        if (!apiPreChck(req, res))
+            return;
+        string key = string(req.matches[1]);
+        // get from info
+        auto it = updateMap.find(key);
+        if (it == updateMap.end()) {
+            json11::Json result = json11::Json::object{
+                {"msg", "Job Not Found"}};
+            jsonResponse(res, result, 404);
+            return;
+        }
+        json11::Json result = json11::Json::object{
+            {"msg", it->second->status},
+            {"downloaded", (long)it->second->downloaded},
+            {"total", (long)it->second->total}};
+        jsonResponse(res, result, 200);
     });
 }

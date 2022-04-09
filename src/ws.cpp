@@ -159,6 +159,11 @@ void ws_broadcast(string msg) {
         wss.send(hdl, msg, websocketpp::frame::opcode::text);
     }
 }
+void ws_broadcast(string action, string msg) {
+    json11::Json json = json11::Json::object{{"action", action}, {"data", msg}};
+    string response_str = json.dump();
+    ws_broadcast(response_str);
+}
 
 void ws_server() {
     httpThread();

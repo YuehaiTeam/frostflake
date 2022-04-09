@@ -1,7 +1,7 @@
 1 ICON DISCARDABLE "cocogoat.ico"
 1 VERSIONINFO
-FILEVERSION 1,1,1,0
-PRODUCTVERSION 1,1,1,0
+FILEVERSION 1,2,0,0
+PRODUCTVERSION 1,2,0,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -9,13 +9,13 @@ BEGIN
     BEGIN
         VALUE "CompanyName",      "YuehaiTeam"
         VALUE "FileDescription",  "Cocogoat WebControl"
-        VALUE "FileVersion",      "1.1.1.0"
+        VALUE "FileVersion",      "1.2.0.0"
     END
     BLOCK "080404E4"
     BEGIN
         VALUE "CompanyName",      "ÔÂº£Í¤ YuehaiTeam"
         VALUE "FileDescription",  "Ò¬Ñò¡¤¸¨Öú²å¼þ"
-        VALUE "FileVersion",      "1.1.1.0"
+        VALUE "FileVersion",      "1.2.0.0"
     END
   END
   BLOCK "VarFileInfo"

@@ -50,4 +50,6 @@ public:
                                      {"id", id}}};
     };
 };
+
+std::wstring getLocalPath(std::string name);
 #endif

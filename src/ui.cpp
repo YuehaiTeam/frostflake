@@ -60,23 +60,23 @@ LRESULT CALLBACK uiKeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
 void uiThread() {
     HINSTANCE instance = GetModuleHandle(NULL);
     HHOOK hHook = SetWindowsHookEx(WH_KEYBOARD_LL, (HOOKPROC)uiKeyboardListener, instance, 0);
-    Window window(ToWString("椰羊·自动操作 v" + string(VERSION)), 300, 150);
+    Window window(ToWString("椰羊·辅助插件"), 270, 150);
     windowPtr = &window;
     window.setBackground(Brush(Hex(0xffffff)));
     window.setGlobalIcon(Icon(1));
     window.setOnCustomMessage(uiOnCustomMessage);
-    string localText = "\n请在网页端启用自动控制功能";
+    string localText = "\n\n本插件不需要任何交互\n请回到网页端继续操作";
     if (localAuth != "") {
         localText = "";
     }
-    TextView lbl(&window, ToWString("椰羊·自动操作 v" + string(VERSION) + localText));
-    lbl.setTextColor(Hex(0x2b3399));
+    TextView lbl(&window, ToWString("椰羊·辅助插件 v" + string(VERSION) + localText));
+    lbl.setTextColor(Hex(0x888888));
     lbl.setBackground(Brush(Hex(0xffffff)));
     lbl.setFont(ToWString("Microsoft Yahei UI"));
-    lbl.setTextSize(20);
+    lbl.setTextSize(18);
     lbl.setAlign(Center);
-    lbl.setSize(285, 50);
-    lbl.setLocation(0, 35);
+    lbl.setSize(255, 70);
+    lbl.setLocation(0, 25);
     window.removeFlag(WS_MAXIMIZEBOX);
     window.removeFlag(WS_THICKFRAME);
     window.show();
