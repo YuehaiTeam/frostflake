@@ -1,6 +1,6 @@
 #include <iostream>
-#include <string>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <websocketpp/config/asio_no_tls.hpp>
 #include <websocketpp/server.hpp>
@@ -145,14 +145,13 @@ bool on_validate(server *s, websocketpp::connection_hdl hdl) {
     return true;
 }
 
-std::set<websocketpp::connection_hdl,std::owner_less<websocketpp::connection_hdl>> con_list;
+std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> con_list;
 void on_open(server *s, websocketpp::connection_hdl hdl) {
     con_list.insert(hdl);
 }
 void on_close(server *s, websocketpp::connection_hdl hdl) {
     con_list.erase(hdl);
 }
-
 
 void ws_broadcast(string msg) {
     for (auto &hdl : con_list) {
@@ -184,4 +183,14 @@ void ws_server() {
     } catch (...) {
         std::cout << "other exception" << std::endl;
     }
+}
+void ws_stopall() {
+    // stop listening
+    wss.stop_listening();
+    // disconnect all clients
+    for (auto &hdl : con_list) {
+        wss.close(hdl, websocketpp::close::status::going_away, "server shutdown");
+    }
+    // stop server
+    wss.stop();
 }

@@ -151,7 +151,7 @@ static BOOL CALLBACK enumMonitorProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT l
     data.height = info.rcMonitor.bottom - info.rcMonitor.top;
     data.primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0;
     unsigned int dpi = 0;
-    if (GetDpiForMonitor_) {
+    if (GetDpiForMonitor_ != nullptr) {
         GetDpiForMonitor_(hMonitor, MDT_EFFECTIVE_DPI, &dpi, &dpi);
     }
     data.dpi = dpi;

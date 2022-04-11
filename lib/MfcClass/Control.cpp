@@ -1,4 +1,5 @@
 #include "Control.h"
+#include "dpiAware.h"
 
 thread_local WNDCLASSEX Control::mWndClass{};
 thread_local std::wstring Control::mClassName;
@@ -7,6 +8,7 @@ thread_local std::unordered_map<HWND, Control *> Control::mControls;
 thread_local int Control::mLapse = 16;
 thread_local HICON Control::mIcon = LoadIcon(NULL, IDI_APPLICATION);
 thread_local f_onRender Control::mOnRender = nullptr;
+extern GetDpiForWindowProc GetDpiForWindow_;
 
 Control::~Control() {
     this->destroy();
@@ -342,7 +344,14 @@ bool Control::create() {
         mWndClass.hInstance,
         NULL);
     if (mHwnd != NULL) {
-        mDpi = GetDpiForWindow(mHwnd);
+        if (GetDpiForWindow_) {
+            mDpi = GetDpiForWindow_(mHwnd);
+        } else {
+            // win7
+            HDC hdc = GetDC(mHwnd);
+            mDpi = GetDeviceCaps(hdc, LOGPIXELSX);
+            ReleaseDC(mHwnd, hdc);
+        }
         mCreated = true;
         mControls[mHwnd] = this;
         updateFont();
@@ -361,9 +370,9 @@ void Control::handleDpiChange(unsigned long newDpi, RECT *suggestedRect) {
     mDpi = newDpi;
     updateFont();
     setSize(mWidth, mHeight);
-	for(auto child : mChildrens) {
-		child->handleDpiChange(newDpi, suggestedRect);
-	}
+    for (auto child : mChildrens) {
+        child->handleDpiChange(newDpi, suggestedRect);
+    }
 }
 
 void Control::destroy() {

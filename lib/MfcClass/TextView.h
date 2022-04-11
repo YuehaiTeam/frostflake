@@ -21,8 +21,8 @@ public:
 	virtual void setRect(RECT);
 	Align getAlign();
 protected:
-	f_onClick mOnClick;
-	f_onDoubleClick mOnDoubleClick;
+	f_onClick mOnClick = nullptr;
+	f_onDoubleClick mOnDoubleClick = nullptr;
 	bool mAutoSize = false;
 
 	void autosize();

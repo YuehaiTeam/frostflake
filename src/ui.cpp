@@ -72,7 +72,7 @@ void uiThread() {
     TextView lbl(&window, ToWString("椰羊·辅助插件 v" + string(VERSION) + localText));
     lbl.setTextColor(Hex(0x888888));
     lbl.setBackground(Brush(Hex(0xffffff)));
-    lbl.setFont(ToWString("Microsoft Yahei UI"));
+    lbl.setFont(ToWString("Microsoft Yahei"));
     lbl.setTextSize(18);
     lbl.setAlign(Center);
     lbl.setSize(255, 70);
