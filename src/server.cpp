@@ -1,6 +1,8 @@
 #include "../lib/struct.h"
 #include "../version.h"
 
+#include "versionhelpers.h"
+
 #include <unordered_map>
 
 #include "../lib/dpiAware.h"
@@ -166,6 +168,35 @@ void activeWindow(HWND hWnd) {
     SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 }
+VERSIONHELPERAPI _IsWindows11OrGreater() {
+    OSVERSIONINFOEXW osvi = {sizeof(osvi), 0, 0, 0, 0, {0}, 0, 0};
+    DWORDLONG const dwlConditionMask = VerSetConditionMask(
+        VerSetConditionMask(
+            VerSetConditionMask(
+                0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+            VER_MINORVERSION, VER_GREATER_EQUAL),
+        VER_BUILDNUMBER, VER_GREATER_EQUAL);
+
+    osvi.dwMajorVersion = HIBYTE(_WIN32_WINNT_WIN10);
+    osvi.dwMinorVersion = LOBYTE(_WIN32_WINNT_WIN10);
+    osvi.dwBuildNumber = 22000;
+
+    return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_BUILDNUMBER, dwlConditionMask) != FALSE;
+}
+int winver() {
+    // return 7, 8, 10 or 11
+    int ver = 0;
+    if (_IsWindows11OrGreater()) {
+        ver = 11;
+    }else if (IsWindows10OrGreater()) {
+        ver = 10;
+    }else if (IsWindows8OrGreater()) {
+        ver = 8;
+    }else if (IsWindows7OrGreater()) {
+        ver = 7;
+    }
+    return ver;
+}
 
 void httpThread() {
     svr.set_keep_alive_timeout(300);
@@ -195,10 +226,12 @@ void httpThread() {
         if (req.headers.find("Authorization") != req.headers.end()) {
             string auth = req.headers.find("Authorization")->second;
             string token = auth.substr(7);
+            // get windows version
             if (auth.find("Bearer ") == 0 && tokens.find(token) != tokens.end() && tokens[token] == origin) {
                 json11::Json result = json11::Json::object{
                     {"token", token},
                     {"origin", origin},
+                    {"winver", winver()},
                     {"hwnd", (long)activeWindow}};
                 jsonResponse(res, result, 201);
                 return;
@@ -224,6 +257,7 @@ void httpThread() {
         json11::Json result = json11::Json::object{
             {"token", token},
             {"origin", origin},
+            {"winver", winver()},
             {"hwnd", (long)activeWindow}};
         jsonResponse(res, result, 201);
     });
@@ -374,6 +408,42 @@ void httpThread() {
             json11::Json result = json11::Json::object{
                 {"msg", "Bad Request"}};
             jsonResponse(res, result, 400);
+            return;
+        }
+
+        std::string action = json["action"].string_value();
+        if (action == "update") {
+            string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/cvautotrack.txt");
+            IupdateInfo *info = NULL;
+            // check if exists
+            auto it = updateMap.find("cvautotrack");
+            if (it == updateMap.end()) {
+                info = new IupdateInfo();
+            } else {
+                info = it->second;
+            }
+            info->status = "waiting";
+            info->downloaded = 0;
+            info->total = 0;
+            checkAndDownloadInNewThread(ToWString(infoUrl), info);
+            updateMap.insert_or_assign("cvautotrack", info);
+            json11::Json result = json11::Json::object{
+                {"msg", "Created"}};
+            jsonResponse(res, result, 201);
+            return;
+        }
+        if (action == "progress") {
+            auto it = updateMap.find("cvautotrack");
+            if (it == updateMap.end()) {
+                json11::Json result = json11::Json::object{
+                    {"msg", "Job Not Found"}};
+                jsonResponse(res, result, 404);
+                return;
+            }
+            json11::Json result = json11::Json::object{
+                {"msg", it->second->status},
+                {"data", json11::Json::array{(long)it->second->downloaded, (long)it->second->total}}};
+            jsonResponse(res, result, 200);
             return;
         }
         json11::Json resjson = cvAutotrackCommand(json);

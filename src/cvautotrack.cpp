@@ -7,27 +7,10 @@
 #include <windows.h>
 HMODULE hModule = NULL;
 void ws_broadcast(std::string msg);
-void downloadInNewThread(std::wstring infourl, std::wstring path, unsigned long &downloaded, unsigned long &total, std::string &status);
-unsigned long downloaded = 0;
-unsigned long total = 0;
 bool isBroadcast = false;
-std::string updatestatus = "";
 std::thread cvThread;
 json11::Json cvAutotrackCommand(json11::Json cmd) {
     std::string action = cmd["action"].string_value();
-    if (action == "version") {
-        return json11::Json::object{
-            {"msg", getDLLUpdateTime()}};
-    }
-    if (action == "update") {
-        return json11::Json::object{
-            {"msg", updateDLL()}};
-    }
-    if (action == "progress") {
-        return json11::Json::object{
-            {"msg", updatestatus},
-            {"data", json11::Json::array{(long)downloaded, (long)total}}};
-    }
     if (action == "sub") {
         return json11::Json::object{
             {"status", startTrack()}};
@@ -106,40 +89,6 @@ json11::Json cvAutotrackCommand(json11::Json cmd) {
     return json11::Json::object{
         {"status", false},
         {"msg", "unknown action"}};
-}
-std::string updateDLL() {
-    std::wstring updateUrl = L"https://cocogoat-1251105598.file.myqcloud.com/77/cvautotrack.txt";
-    WCHAR szPath[MAX_PATH];
-    if (SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath) < 0) {
-        return "faild: getfolderpath";
-    }
-    PathAppendW(szPath, L"\\cocogoat-control\\");
-    CreateDirectoryW(szPath, NULL);
-    PathAppendW(szPath, L"cvautotrack.dll");
-    downloadInNewThread(updateUrl, szPath, downloaded, total, updatestatus);
-    return "started";
-}
-std::string getDLLUpdateTime() {
-    WCHAR szPath[MAX_PATH];
-    if (SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath) < 0) {
-        return "faild";
-    }
-    PathAppendW(szPath, L"\\cocogoat-control\\");
-    CreateDirectoryW(szPath, NULL);
-    PathAppendW(szPath, L"cvautotrack.dll");
-    HANDLE hFile = CreateFileW(szPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) {
-        return "nofile";
-    }
-    FILETIME ft;
-    GetFileTime(hFile, NULL, NULL, &ft);
-    CloseHandle(hFile);
-    // iso time gmt
-    SYSTEMTIME st;
-    FileTimeToSystemTime(&ft, &st);
-    char buf[100];
-    sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02dZ", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    return buf;
 }
 std::string load() {
     if (cvInit) {

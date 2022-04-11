@@ -9,13 +9,13 @@ BEGIN
     BEGIN
         VALUE "CompanyName",      "YuehaiTeam"
         VALUE "FileDescription",  "Cocogoat WebControl"
-        VALUE "FileVersion",      "1.2.0.0"
+        VALUE "FileVersion",      "1.2.1.0"
     END
     BLOCK "080404E4"
     BEGIN
         VALUE "CompanyName",      "ÔÂº£Í¤ YuehaiTeam"
         VALUE "FileDescription",  "Ò¬Ñò¡¤¸¨Öú²å¼þ"
-        VALUE "FileVersion",      "1.2.0.0"
+        VALUE "FileVersion",      "1.2.1.0"
     END
   END
   BLOCK "VarFileInfo"
