@@ -53,6 +53,8 @@ public:
 };
 
 std::wstring getLocalPath(std::string name);
+std::wstring getRelativePath(std::string name);
+bool fileExists(std::wstring name);
 std::string deviceEncrypt(std::string str);
 std::string deviceDecrypt(std::string str);
 #endif

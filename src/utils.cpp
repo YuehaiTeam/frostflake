@@ -4,8 +4,23 @@
 #include <string>
 #include <windows.h>
 std::wstring ToWString(const std::string &str);
+// relative path to exe
+std::wstring getRelativePath(std::string name) {
+    // get exe path
+    WCHAR szPath[MAX_PATH];
+    GetModuleFileNameW(NULL, szPath, MAX_PATH);
+    PathRemoveFileSpecW(szPath);
+    PathAppendW(szPath, ToWString(name).c_str());
+    return szPath;
+}
+// check file exists
+bool fileExists(std::wstring name) {
+    return GetFileAttributesW(name.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
 std::wstring getLocalPath(std::string name) {
-    // get target path
+    if (fileExists(getRelativePath("cocogoat")) || fileExists(getRelativePath("cocogoat-noupdate")) || fileExists(getRelativePath(name))) {
+        return getRelativePath(name);
+    }
     WCHAR szPath[MAX_PATH];
     if (SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath) < 0) {
         return L"";
@@ -15,14 +30,14 @@ std::wstring getLocalPath(std::string name) {
     PathAppendW(szPath, ToWString(name).c_str());
     return szPath;
 }
-std::string deviceEncrypt(std::string str){
+std::string deviceEncrypt(std::string str) {
     // CryptProtectData
     DATA_BLOB DataIn;
     DATA_BLOB DataOut;
     DATA_BLOB DataEntropy;
-    DataIn.pbData = (BYTE*)str.c_str();
+    DataIn.pbData = (BYTE *)str.c_str();
     DataIn.cbData = str.length();
-    DataEntropy.pbData = (BYTE*)"cocogoat";
+    DataEntropy.pbData = (BYTE *)"cocogoat";
     DataEntropy.cbData = 8;
     if (!CryptProtectData(&DataIn, NULL, &DataEntropy, NULL, NULL, 0, &DataOut)) {
         return "";
@@ -38,10 +53,10 @@ std::string deviceEncrypt(std::string str){
     LocalFree(DataOut.pbData);
     return ret;
 }
-std::string deviceDecrypt(std::string hex){
+std::string deviceDecrypt(std::string hex) {
     // hex to buffer
     int len = hex.length() / 2;
-    BYTE* buf = new BYTE[len];
+    BYTE *buf = new BYTE[len];
     for (int i = 0; i < len; i++) {
         buf[i] = (BYTE)strtol(hex.substr(i * 2, 2).c_str(), NULL, 16);
     }
@@ -51,13 +66,13 @@ std::string deviceDecrypt(std::string hex){
     DataIn.pbData = buf;
     DataIn.cbData = len;
     DATA_BLOB DataEntropy;
-    DataEntropy.pbData = (BYTE*)"cocogoat";
+    DataEntropy.pbData = (BYTE *)"cocogoat";
     DataEntropy.cbData = 8;
     if (!CryptUnprotectData(&DataIn, NULL, &DataEntropy, NULL, NULL, 0, &DataOut)) {
         return "";
     }
     // to string
-    std::string ret((char*)DataOut.pbData, DataOut.cbData);
+    std::string ret((char *)DataOut.pbData, DataOut.cbData);
     // free
     LocalFree(DataOut.pbData);
     return ret;

@@ -20,11 +20,15 @@ typedef struct IupdateInfo {
 } IupdateInfo;
 
 bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
+    if (fileExists(getRelativePath("cocogoat-noupdate"))) {
+        info->status = "noupdate";
+        return false;
+    }
     info->status = "started";
     HINTERNET hopen = InternetOpenW(L"cocogoat-updater", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
     DWORD flags = INTERNET_FLAG_DONT_CACHE;
     if (!hopen) {
-        info->status = "InternetOpenW failed: " + std::to_string(GetLastError());
+        info->status = "InternetOpenW failed: [" + std::to_string(GetLastError()) + "]";
         return false;
     }
     if (infourl.find(L"https://") == 0)
@@ -33,7 +37,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
     // get content of checkerurl
     HINTERNET hrequest = InternetOpenUrlW(hopen, infourl.c_str(), NULL, 0, flags, 0);
     if (!hrequest) {
-        info->status = "Precheck: InternetOpenUrlW failed: " + std::to_string(GetLastError());
+        info->status = "Precheck: InternetOpenUrlW failed: [" + std::to_string(GetLastError()) + "]";
         return false;
     }
     info->status = "prechecking";
@@ -57,7 +61,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
     // get target path
     std::wstring path = getLocalPath(fname);
     if (path == L"") {
-        info->status = "getLocalPath failed: " + std::to_string(GetLastError());
+        info->status = "getLocalPath failed: [" + std::to_string(GetLastError()) + "]";
         return false;
     }
 
@@ -68,7 +72,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
                              NULL,
                              PROV_RSA_FULL,
                              CRYPT_VERIFYCONTEXT)) {
-        info->status = "CryptAcquireContext failed: " + std::to_string(GetLastError());
+        info->status = "CryptAcquireContext failed: [" + std::to_string(GetLastError()) + "]";
     }
 
     // check target file exists
@@ -81,14 +85,14 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         // target file exists, check md5
         HCRYPTHASH pHash = 0;
         if (!CryptCreateHash(hProv, CALG_MD5, 0, 0, &pHash)) {
-            info->status = "Precheck: CryptCreateHash failed: " + std::to_string(GetLastError());
+            info->status = "Precheck: CryptCreateHash failed: [" + std::to_string(GetLastError()) + "]";
             CryptReleaseContext(hProv, 0);
             return false;
         }
         DWORD read = 0;
         while (ReadFile(rFile, buffer, sizeof(buffer), &read, NULL)) {
             if (!CryptHashData(pHash, buffer, read, 0)) {
-                info->status = "Precheck: CryptHashData failed: " + std::to_string(GetLastError());
+                info->status = "Precheck: CryptHashData failed: [" + std::to_string(GetLastError()) + "]";
                 CryptReleaseContext(hProv, 0);
                 CloseHandle(rFile);
                 return false;
@@ -104,7 +108,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         DWORD pHashsize = 16;
         BYTE pHashText[16];
         if (!CryptGetHashParam(pHash, HP_HASHVAL, pHashText, &pHashsize, 0)) {
-            info->status = "CryptGetHashParam failed: " + std::to_string(GetLastError());
+            info->status = "CryptGetHashParam failed: [" + std::to_string(GetLastError()) + "]";
             return false;
         }
         std::string hashText = "";
@@ -123,7 +127,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         }
     }
     if (!CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHash)) {
-        info->status = "CryptCreateHash failed: " + std::to_string(GetLastError());
+        info->status = "CryptCreateHash failed: [" + std::to_string(GetLastError()) + "]";
         CryptReleaseContext(hProv, 0);
         return false;
     }
@@ -132,16 +136,16 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
     info->status = "downloading";
     HINTERNET hfile = InternetOpenUrlW(hopen, url.c_str(), NULL, 0, flags, 0);
     if (!hfile) {
+        info->status = "Download: InternetOpenUrlW failed: [" + std::to_string(GetLastError()) + "]";
         InternetCloseHandle(hopen);
-        info->status = "Download: InternetOpenUrlW failed: " + std::to_string(GetLastError());
         return false;
     }
     info->downloaded = 0;
     HANDLE hfileout = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hfileout == INVALID_HANDLE_VALUE) {
+        info->status = "CreateFileW failed: [" + std::to_string(GetLastError()) + "]";
         InternetCloseHandle(hfile);
         InternetCloseHandle(hopen);
-        info->status = "CreateFileW failed: " + std::to_string(GetLastError());
         return false;
     }
     DWORD read = 0;
@@ -150,7 +154,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         DWORD written;
         WriteFile(hfileout, buffer, read, &written, NULL);
         if (!CryptHashData(hHash, buffer, read, 0)) {
-            info->status = "CryptHashData failed: " + std::to_string(GetLastError());
+            info->status = "CryptHashData failed: [" + std::to_string(GetLastError()) + "]";
             CloseHandle(hfileout);
             InternetCloseHandle(hfile);
             InternetCloseHandle(hopen);
@@ -165,7 +169,7 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
     DWORD hashsize = 16;
     BYTE hash[16];
     if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashsize, 0)) {
-        info->status = "CryptGetHashParam failed: " + std::to_string(GetLastError());
+        info->status = "CryptGetHashParam failed: [" + std::to_string(GetLastError()) + "]";
         return false;
     }
     std::string hashText = "";

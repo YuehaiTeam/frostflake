@@ -5,6 +5,8 @@
 #include <string>
 #include <thread>
 #include <windows.h>
+bool fileExists(std::wstring name);
+std::wstring getLocalPath(std::string name);
 HMODULE hModule = NULL;
 void ws_broadcast(std::string msg);
 bool isBroadcast = false;
@@ -94,43 +96,30 @@ std::string load() {
     if (cvInit) {
         return "loaded";
     }
-    WCHAR szPath[MAX_PATH];
-    // Get path for each computer, non-user specific and non-roaming data.
-    if (SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath) >= 0) {
-        hModule = LoadLibraryExW(L"cvautotrack.dll", NULL, NULL);
-        long errcode1 = GetLastError();
-        if (!hModule) {
-            // Append product-specific path
-            PathAppendW(szPath, L"\\cocogoat-control\\");
-            CreateDirectoryW(szPath, NULL);
-            PathAppendW(szPath, L"cvautotrack.dll");
-            if (INVALID_FILE_ATTRIBUTES == GetFileAttributesW(szPath)) {
-                return "nofile";
-            }
-            hModule = LoadLibraryExW(szPath, NULL, NULL);
-            if (!hModule) {
-                long errcode = GetLastError();
-                return "faild: loadlibrary " + std::to_string(errcode) + "/" + std::to_string(errcode1);
-            }
-        }
-        cvInit = (cvInitProc)GetProcAddress(hModule, "init");
-        cvUnInit = (cvUnInitProc)GetProcAddress(hModule, "uninit");
-        cvSetHandle = (cvSetHandleProc)GetProcAddress(hModule, "SetHandle");
-        cvSetWorldCenter = (cvSetWorldCenterProc)GetProcAddress(hModule, "SetWorldCenter");
-        cvSetWorldScale = (cvSetWorldScaleProc)GetProcAddress(hModule, "SetWorldScale");
-        cvGetTransform = (cvGetTransformProc)GetProcAddress(hModule, "GetTransform");
-        cvGetPosition = (cvGetPositionProc)GetProcAddress(hModule, "GetPosition");
-        cvGetDirection = (cvGetDirectionProc)GetProcAddress(hModule, "GetDirection");
-        cvGetRotation = (cvGetRotationProc)GetProcAddress(hModule, "GetRotation");
-        cvGetLastErr = (cvGetLastErrProc)GetProcAddress(hModule, "GetLastErr");
-        if (!cvInit || !cvUnInit || !cvSetHandle || !cvSetWorldCenter || !cvSetWorldScale || !cvGetTransform || !cvGetPosition || !cvGetDirection || !cvGetRotation || !cvGetLastErr) {
-            long errcode = GetLastError();
-            return "faild: getprocaddr " + std::to_string(errcode);
-        }
-        return "loaded";
-    } else {
-        return "faild: getfolderpath";
+    std::wstring dllPath = getLocalPath("cvautotrack.dll");
+    if (!fileExists(dllPath)) {
+        return "nofile";
     }
+    hModule = LoadLibraryExW(dllPath.c_str(), NULL, NULL);
+    if (!hModule) {
+        long errcode = GetLastError();
+        return "faild: loadlibrary " + std::to_string(errcode);
+    }
+    cvInit = (cvInitProc)GetProcAddress(hModule, "init");
+    cvUnInit = (cvUnInitProc)GetProcAddress(hModule, "uninit");
+    cvSetHandle = (cvSetHandleProc)GetProcAddress(hModule, "SetHandle");
+    cvSetWorldCenter = (cvSetWorldCenterProc)GetProcAddress(hModule, "SetWorldCenter");
+    cvSetWorldScale = (cvSetWorldScaleProc)GetProcAddress(hModule, "SetWorldScale");
+    cvGetTransform = (cvGetTransformProc)GetProcAddress(hModule, "GetTransform");
+    cvGetPosition = (cvGetPositionProc)GetProcAddress(hModule, "GetPosition");
+    cvGetDirection = (cvGetDirectionProc)GetProcAddress(hModule, "GetDirection");
+    cvGetRotation = (cvGetRotationProc)GetProcAddress(hModule, "GetRotation");
+    cvGetLastErr = (cvGetLastErrProc)GetProcAddress(hModule, "GetLastErr");
+    if (!cvInit || !cvUnInit || !cvSetHandle || !cvSetWorldCenter || !cvSetWorldScale || !cvGetTransform || !cvGetPosition || !cvGetDirection || !cvGetRotation || !cvGetLastErr) {
+        long errcode = GetLastError();
+        return "faild: getprocaddr " + std::to_string(errcode);
+    }
+    return "loaded";
 }
 bool init() {
     if (cvInit) {
