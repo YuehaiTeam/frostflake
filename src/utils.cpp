@@ -15,6 +15,54 @@ std::wstring getLocalPath(std::string name) {
     PathAppendW(szPath, ToWString(name).c_str());
     return szPath;
 }
+std::string deviceEncrypt(std::string str){
+    // CryptProtectData
+    DATA_BLOB DataIn;
+    DATA_BLOB DataOut;
+    DATA_BLOB DataEntropy;
+    DataIn.pbData = (BYTE*)str.c_str();
+    DataIn.cbData = str.length();
+    DataEntropy.pbData = (BYTE*)"cocogoat";
+    DataEntropy.cbData = 8;
+    if (!CryptProtectData(&DataIn, NULL, &DataEntropy, NULL, NULL, 0, &DataOut)) {
+        return "";
+    }
+    // to hex
+    std::string ret;
+    for (int i = 0; i < DataOut.cbData; i++) {
+        char buf[3];
+        sprintf(buf, "%02x", DataOut.pbData[i]);
+        ret += buf;
+    }
+    // free
+    LocalFree(DataOut.pbData);
+    return ret;
+}
+std::string deviceDecrypt(std::string hex){
+    // hex to buffer
+    int len = hex.length() / 2;
+    BYTE* buf = new BYTE[len];
+    for (int i = 0; i < len; i++) {
+        buf[i] = (BYTE)strtol(hex.substr(i * 2, 2).c_str(), NULL, 16);
+    }
+    // CryptUnprotectData
+    DATA_BLOB DataIn;
+    DATA_BLOB DataOut;
+    DataIn.pbData = buf;
+    DataIn.cbData = len;
+    DATA_BLOB DataEntropy;
+    DataEntropy.pbData = (BYTE*)"cocogoat";
+    DataEntropy.cbData = 8;
+    if (!CryptUnprotectData(&DataIn, NULL, &DataEntropy, NULL, NULL, 0, &DataOut)) {
+        return "";
+    }
+    // to string
+    std::string ret((char*)DataOut.pbData, DataOut.cbData);
+    // free
+    LocalFree(DataOut.pbData);
+    return ret;
+}
+
 /******************************************************************************\
 *       This is a part of the Microsoft Source Code Samples.
 *       Copyright 1995 - 1997 Microsoft Corporation.

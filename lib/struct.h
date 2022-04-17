@@ -7,6 +7,7 @@
 typedef struct WM_AUTHENCATION_DATA {
     std::string origin;
     bool pass;
+    bool remember;
 } WM_AUTHENCATION_DATA;
 
 class WindowData {
@@ -52,4 +53,6 @@ public:
 };
 
 std::wstring getLocalPath(std::string name);
+std::string deviceEncrypt(std::string str);
+std::string deviceDecrypt(std::string str);
 #endif

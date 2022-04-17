@@ -139,7 +139,7 @@ bool on_validate(server *s, websocketpp::connection_hdl hdl) {
     if (tokens.find(token) == tokens.end()) {
         return false;
     }
-    if (origin != tokens[token]) {
+    if (tokens[token][0] != '@' && origin != tokens[token]) {
         return false;
     }
     return true;

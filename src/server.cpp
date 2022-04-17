@@ -188,11 +188,11 @@ int winver() {
     int ver = 0;
     if (_IsWindows11OrGreater()) {
         ver = 11;
-    }else if (IsWindows10OrGreater()) {
+    } else if (IsWindows10OrGreater()) {
         ver = 10;
-    }else if (IsWindows8OrGreater()) {
+    } else if (IsWindows8OrGreater()) {
         ver = 8;
-    }else if (IsWindows7OrGreater()) {
+    } else if (IsWindows7OrGreater()) {
         ver = 7;
     }
     return ver;
@@ -223,39 +223,76 @@ void httpThread() {
         }
         HWND activeWindow = GetForegroundWindow();
         string origin = req.headers.find("Origin")->second;
+        authData.origin = origin;
+        authData.pass = false;
+        authData.remember = false;
+        UUID uuid;
+        UuidCreate(&uuid);
+        RPC_CSTR szUuid = NULL;
+        UuidToStringA(&uuid, &szUuid);
+        string utoken = std::string((char *)szUuid);
+        RpcStringFreeA(&szUuid);
         if (req.headers.find("Authorization") != req.headers.end()) {
             string auth = req.headers.find("Authorization")->second;
             string token = auth.substr(7);
             // get windows version
-            if (auth.find("Bearer ") == 0 && tokens.find(token) != tokens.end() && tokens[token] == origin) {
-                json11::Json result = json11::Json::object{
-                    {"token", token},
-                    {"origin", origin},
-                    {"winver", winver()},
-                    {"hwnd", (long)activeWindow}};
-                jsonResponse(res, result, 201);
-                return;
+            if (auth.find("Bearer ") == 0) {
+                if (token.find("-") == string::npos) {
+                    if (tokens.find(token) != tokens.end()) {
+                        authData.pass = true;
+                        utoken = tokens[token];
+                    }
+                    string dec = deviceDecrypt(token);
+                    if (dec != "") {
+                        string err = "";
+                        json11::Json parsed = json11::Json::parse(dec, err);
+                        if (err == "") {
+                            if (parsed["_"].string_value() == "remember" && parsed["o"].string_value() == origin) {
+                                long now = (long)time(NULL);
+                                int created = parsed["t"].int_value();
+                                // expire in 7 days
+                                if (now - created < 60 * 60 * 24 * 7) {
+                                    authData.pass = true;
+                                    tokens[token] = utoken;
+                                }
+                            }
+                        }
+                    }
+                } else if (tokens.find(token) != tokens.end() && tokens[token] == origin) {
+                    json11::Json result = json11::Json::object{
+                        {"token", token},
+                        {"origin", origin},
+                        {"winver", winver()},
+                        {"hwnd", (long)activeWindow}};
+                    jsonResponse(res, result, 201);
+                    return;
+                }
             }
         }
-        authData.origin = origin;
-        authData.pass = false;
-        SetForegroundWindow(windowPtr->hwnd());
-        SendMessageW(windowPtr->hwnd(), WM_AUTHENCATION, 1, 0);
+        if (!authData.pass) {
+            SetForegroundWindow(windowPtr->hwnd());
+            SendMessageW(windowPtr->hwnd(), WM_AUTHENCATION, 1, 0);
+        }
         if (!authData.pass) {
             json11::Json result = json11::Json::object{
                 {"msg", "Request denied by user"}};
             jsonResponse(res, result, 401);
             return;
         }
-        UUID uuid;
-        UuidCreate(&uuid);
-        RPC_CSTR szUuid = NULL;
-        UuidToStringA(&uuid, &szUuid);
-        string token = std::string((char *)szUuid);
-        RpcStringFreeA(&szUuid);
-        tokens[token] = origin;
+        tokens[utoken] = origin;
+        string remember = "";
+        if (authData.remember) {
+            // int timestamp
+            long timestamp = (long)time(NULL);
+            json11::Json remb = json11::Json::object{
+                {"_", "remember"},
+                {"o", origin},
+                {"t", timestamp}};
+            remember = deviceEncrypt(remb.dump());
+        }
         json11::Json result = json11::Json::object{
-            {"token", token},
+            {"token", utoken},
+            {"remember", remember},
             {"origin", origin},
             {"winver", winver()},
             {"hwnd", (long)activeWindow}};
