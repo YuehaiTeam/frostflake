@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 std::wstring ToWString(const std::string &str);
+std::string ToString(const std::wstring &str);
 std::wstring getLocalPath(std::string name);
 void ws_broadcast(std::string action, std::string msg);
 std::string yasJsonContent = "";
@@ -54,15 +55,15 @@ void runYas(std::string &argv) {
     si.hStdOutput = outWrite;
     si.hStdError = outWrite;
     si.hStdInput = inRead;
-    // set cwd
-    std::wstring cwd = getLocalPath("");
+    // set cwd to yas.exe dir
+    std::wstring cwd = path.substr(0, path.find_last_of(L"\\"));
     // prepend yas.exe to argv
     argv = "yas.exe " + argv;
     ws_broadcast("yas-output", argv);
     const wchar_t *szargv = ToWString(argv).c_str();
     // make it not const
     wchar_t *szargv2 = new wchar_t[argv.size() + 1];
-    wcscpy(szargv2, szargv);
+    wcscpy_s(szargv2, argv.size() + 1, szargv);
     // CREATE_NO_WINDOW
     if (!CreateProcessW(path.c_str(), szargv2, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, cwd.c_str(), &si, &pi)) {
         ws_broadcast("yas", "create process failed");
@@ -133,18 +134,33 @@ void runYas(std::string &argv) {
     CloseHandle(outWrite);
     delete[] szargv2;
     // read yas json content using readfilew
-    HANDLE jFile = CreateFileW(yasJson.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE jFile;
+    // try every 100ms for 5 times
+    for (int i = 0; i < 5; i++) {
+        yasJson = getLocalPath("mona.json");
+        if(i>0){
+            ws_broadcast("yas", "Trying to read json output [" + std::to_string(i + 1) + "]");
+        }
+        jFile = CreateFileW(yasJson.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (jFile != INVALID_HANDLE_VALUE) {
+            break;
+        }
+        Sleep(100);
+    }
     if (jFile == INVALID_HANDLE_VALUE) {
-        ws_broadcast("yas", "yas json not found");
+        ws_broadcast("yas", "Json file not found");
+        ws_broadcast("yas", "FAIL");
         return;
     }
+    ws_broadcast("yas", "Json file found at " + ToString(yasJson));
     DWORD dwRead2 = 0;
     char buf2[1024];
     yasJsonContent = "";
     while (true) {
         if (!ReadFile(jFile, buf2, sizeof(buf2), &dwRead2, NULL)) {
             if (GetLastError() != ERROR_IO_PENDING) {
-                ws_broadcast("yas", "read json failed");
+                ws_broadcast("yas", "Json reading failed: " + std::to_string(GetLastError()));
+                ws_broadcast("yas", "FAIL");
                 break;
             }
         } else {
