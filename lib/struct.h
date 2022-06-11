@@ -4,10 +4,12 @@
 #include "json11.hpp"
 #include <string>
 #define WM_AUTHENCATION (WM_USER + 0x0001)
+#define WM_TRAY_ICON (WM_USER + 0x0002)
 typedef struct WM_AUTHENCATION_DATA {
     std::string origin;
     bool pass;
     bool remember;
+    bool requestRemember;
 } WM_AUTHENCATION_DATA;
 
 class WindowData {

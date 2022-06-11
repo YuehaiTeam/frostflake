@@ -2,8 +2,16 @@
 #include <shlwapi.h>
 #include <stdio.h>
 #include <string>
+#include <unordered_map>
 #include <windows.h>
 std::wstring ToWString(const std::string &str);
+std::wstring getInstallPath(std::wstring path);
+// get exe path
+std::wstring getExePath() {
+    WCHAR szPath[MAX_PATH];
+    GetModuleFileNameW(NULL, szPath, MAX_PATH);
+    return szPath;
+}
 // relative path to exe
 std::wstring getRelativePath(std::string name) {
     // get exe path
@@ -21,14 +29,7 @@ std::wstring getLocalPath(std::string name) {
     if (fileExists(getRelativePath("cocogoat")) || fileExists(getRelativePath("cocogoat-noupdate")) || fileExists(getRelativePath(name))) {
         return getRelativePath(name);
     }
-    WCHAR szPath[MAX_PATH];
-    if (SHGetFolderPathW(NULL, CSIDL_COMMON_APPDATA, NULL, 0, szPath) < 0) {
-        return L"";
-    }
-    PathAppendW(szPath, L"\\cocogoat-control\\");
-    CreateDirectoryW(szPath, NULL);
-    PathAppendW(szPath, ToWString(name).c_str());
-    return szPath;
+    return getInstallPath(ToWString(name));
 }
 std::string deviceEncrypt(std::string str) {
     // CryptProtectData
@@ -76,6 +77,76 @@ std::string deviceDecrypt(std::string hex) {
     // free
     LocalFree(DataOut.pbData);
     return ret;
+}
+
+#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
+
+// from ntdef.h
+typedef struct _WNF_STATE_NAME {
+    ULONG Data[2];
+} WNF_STATE_NAME;
+
+typedef struct _WNF_STATE_NAME *PWNF_STATE_NAME;
+typedef const struct _WNF_STATE_NAME *PCWNF_STATE_NAME;
+
+typedef struct _WNF_TYPE_ID {
+    GUID TypeId;
+} WNF_TYPE_ID, *PWNF_TYPE_ID;
+
+typedef const WNF_TYPE_ID *PCWNF_TYPE_ID;
+
+typedef ULONG WNF_CHANGE_STAMP, *PWNF_CHANGE_STAMP;
+
+enum FocusAssistResult {
+    not_supported = -2,
+    failed = -1,
+    off = 0,
+    priority_only = 1,
+    alarms_only = 2
+};
+
+std::unordered_map<int, std::string> result_map = {
+    {-2, "Not Supported"},
+    {-1, "Failed"},
+    {0, "Off"},
+    {1, "Priority Only"},
+    {2, "Alarm Only"}};
+
+typedef NTSTATUS(NTAPI *PNTQUERYWNFSTATEDATA)(
+    _In_ PWNF_STATE_NAME StateName,
+    _In_opt_ PWNF_TYPE_ID TypeId,
+    _In_opt_ const VOID *ExplicitScope,
+    _Out_ PWNF_CHANGE_STAMP ChangeStamp,
+    _Out_writes_bytes_to_opt_(*BufferSize, *BufferSize) PVOID Buffer,
+    _Inout_ PULONG BufferSize);
+
+boolean isFocusAssistEnabled() {
+    const auto h_ntdll = GetModuleHandleW(L"ntdll");
+    const auto pNtQueryWnfStateData = PNTQUERYWNFSTATEDATA(GetProcAddress(h_ntdll, "NtQueryWnfStateData"));
+    if (!pNtQueryWnfStateData) {
+        return false;
+    }
+    // state name for active hours (Focus Assist)
+    WNF_STATE_NAME WNF_SHEL_QUIETHOURS_ACTIVE_PROFILE_CHANGED{0xA3BF1C75, 0xD83063E};
+    // note: we won't use it but it's required
+    WNF_CHANGE_STAMP change_stamp = {0};
+    // on output buffer will tell us the status of Focus Assist
+    DWORD buffer = 0;
+    ULONG buffer_size = sizeof(buffer);
+    if (NT_SUCCESS(pNtQueryWnfStateData(&WNF_SHEL_QUIETHOURS_ACTIVE_PROFILE_CHANGED, nullptr, nullptr, &change_stamp,
+                                        &buffer, &buffer_size))) {
+        // check if the result is one of FocusAssistResult
+        if (result_map.count(buffer) == 0) {
+            return false;
+        } else {
+            if (buffer > 0) {
+                return true;
+            }
+            return false;
+        }
+    } else {
+        return false;
+    }
 }
 
 /******************************************************************************\

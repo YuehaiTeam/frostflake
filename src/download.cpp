@@ -4,6 +4,7 @@
 #include <thread>
 #include <vector>
 
+#include "../version.h"
 #include "struct.h"
 
 #include <windows.h>
@@ -13,75 +14,121 @@
 #include <wincrypt.h>
 #include <wininet.h>
 
+#include "../lib/json11.hpp"
+#include <curl/curl.h>
+
 typedef struct IupdateInfo {
+    std::string url;
+    std::string name;
+    std::string md5;
     std::string status;
     long downloaded;
     long total;
 } IupdateInfo;
 
-bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
+typedef struct IWriteAndHash {
+    IupdateInfo *info;
+    HCRYPTHASH hash;
+    HANDLE file;
+    boolean status;
+} IWriteAndHash;
+
+void curlOpt(CURL *ch) {
+    curl_easy_setopt(ch, CURLOPT_FOLLOWLOCATION, 1);
+    curl_easy_setopt(ch, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NO_REVOKE);
+    curl_easy_setopt(ch, CURLOPT_USERAGENT, std::string("cocogoat-control/" + std::string(VERSION)).c_str());
+}
+size_t curlWriteToString(void *ptr, size_t size, size_t nmemb, void *data) {
+    ((std::string *)data)->append((char *)ptr, size * nmemb);
+    return size * nmemb;
+}
+bool curlGetInfo(std::wstring infourl, IupdateInfo *info) {
+    info->status = "started";
     if (fileExists(getRelativePath("cocogoat-noupdate"))) {
         info->status = "noupdate";
         return false;
     }
-    info->status = "started";
-    HINTERNET hopen = InternetOpenW(L"cocogoat-updater", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
-    DWORD flags = INTERNET_FLAG_DONT_CACHE;
-    if (!hopen) {
-        info->status = "InternetOpenW failed: [" + std::to_string(GetLastError()) + "]";
-        return false;
-    }
-    if (infourl.find(L"https://") == 0)
-        flags |= INTERNET_FLAG_SECURE;
-
-    // get content of checkerurl
-    HINTERNET hrequest = InternetOpenUrlW(hopen, infourl.c_str(), NULL, 0, flags, 0);
-    if (!hrequest) {
-        info->status = "Precheck: InternetOpenUrlW failed: [" + std::to_string(GetLastError()) + "]";
-        return false;
-    }
     info->status = "prechecking";
-    uint8_t buffer[20480];
-    DWORD bytesRead;
-    std::string content;
-    while (InternetReadFile(hrequest, buffer, sizeof(buffer), &bytesRead)) {
-        if (bytesRead == 0)
-            break;
-        content += std::string((char *)buffer, bytesRead);
+    CURL *ch = curl_easy_init();
+    if (!ch) {
+        info->status = "check: curl_easy_init failed";
+        return false;
     }
-    InternetCloseHandle(hrequest);
-    // split by ','
-    std::vector<std::string> parts;
-    boost::split(parts, content, boost::is_any_of(","));
-    std::string md5 = parts[0];
-    long total = std::stol(parts[1]);
-    std::string surl = parts[2];
-    std::string fname = parts[3];
-    std::wstring url = std::wstring(surl.begin(), surl.end());
+    curl_easy_setopt(ch, CURLOPT_URL, ToString(infourl).c_str());
+    curlOpt(ch);
+    std::string data;
+    curl_easy_setopt(ch, CURLOPT_WRITEFUNCTION, curlWriteToString);
+    curl_easy_setopt(ch, CURLOPT_WRITEDATA, &data);
+    CURLcode res = curl_easy_perform(ch);
+    curl_easy_cleanup(ch);
+    if (res != CURLE_OK) {
+        info->status = "check: " + std::string(curl_easy_strerror(res));
+        return false;
+    }
+    std::string jsonerr = "";
+    json11::Json json = json11::Json::parse(data, jsonerr);
+    if (jsonerr != "") {
+        info->status = "check: " + jsonerr;
+        return false;
+    }
+    info->url = json["url"].string_value();
+    info->md5 = json["md5"].string_value();
+    info->name = json["name"].string_value();
+    info->total = (long)json["size"].number_value();
+    return true;
+}
+std::string toChecksum(HCRYPTHASH pHash, IupdateInfo *info) {
+    DWORD pHashsize = 16;
+    BYTE pHashText[16];
+    if (!CryptGetHashParam(pHash, HP_HASHVAL, pHashText, &pHashsize, 0)) {
+        info->status = "CryptGetHashParam failed: [" + std::to_string(GetLastError()) + "]";
+        return false;
+    }
+    std::string hashText = "";
+    CHAR digits[] = "0123456789abcdef";
+    for (DWORD i = 0; i < pHashsize; i++) {
+        char s[16];
+        sprintf(s, "%c%c", digits[pHashText[i] >> 4], digits[pHashText[i] & 0xf]);
+        hashText += s;
+    }
+    // to lower
+    std::transform(hashText.begin(), hashText.end(), hashText.begin(), ::tolower);
+    return hashText;
+}
+size_t curlWriteAndHash(void *ptr, size_t size, size_t nmemb, void *data) {
+    IWriteAndHash *writeAndHash = (IWriteAndHash *)data;
+    if (!writeAndHash->status)
+        return 0;
+    DWORD written;
+    WriteFile(writeAndHash->file, ptr, size * nmemb, &written, NULL);
+    writeAndHash->info->downloaded += written;
+    if (!CryptHashData(writeAndHash->hash, (BYTE *)ptr, size * nmemb, 0)) {
+        writeAndHash->info->status = "CryptHashData failed: [" + std::to_string(GetLastError()) + "]";
+        writeAndHash->status = false;
+        return 0;
+    }
+    return size * nmemb;
+}
+bool checkAndDownloadUsingCurl(std::wstring infourl, IupdateInfo *info) {
+    uint8_t buffer[20480];
+    if (!curlGetInfo(infourl, info)) {
+        return false;
+    }
     // get target path
-    std::wstring path = getLocalPath(fname);
+    std::wstring path = getLocalPath(info->name);
     if (path == L"") {
         info->status = "getLocalPath failed: [" + std::to_string(GetLastError()) + "]";
         return false;
     }
-
     HCRYPTPROV hProv = 0;
     HCRYPTHASH hHash = 0;
-    if (!CryptAcquireContext(&hProv,
-                             NULL,
-                             NULL,
-                             PROV_RSA_FULL,
-                             CRYPT_VERIFYCONTEXT)) {
+    if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
         info->status = "CryptAcquireContext failed: [" + std::to_string(GetLastError()) + "]";
     }
-
     // check target file exists
     HANDLE rFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (rFile != INVALID_HANDLE_VALUE) {
         info->status = "prehashing";
-        // get file size
-        DWORD fileSize = GetFileSize(rFile, NULL);
-        info->total = fileSize;
         // target file exists, check md5
         HCRYPTHASH pHash = 0;
         if (!CryptCreateHash(hProv, CALG_MD5, 0, 0, &pHash)) {
@@ -104,23 +151,11 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         }
         CloseHandle(rFile);
         info->status = "prechecksum";
-        // CryptGetHashParam
-        DWORD pHashsize = 16;
-        BYTE pHashText[16];
-        if (!CryptGetHashParam(pHash, HP_HASHVAL, pHashText, &pHashsize, 0)) {
-            info->status = "CryptGetHashParam failed: [" + std::to_string(GetLastError()) + "]";
+        std::string hashText = toChecksum(pHash, info);
+        if (hashText == "") {
             return false;
         }
-        std::string hashText = "";
-        CHAR digits[] = "0123456789abcdef";
-        for (DWORD i = 0; i < pHashsize; i++) {
-            char s[16];
-            sprintf(s, "%c%c", digits[pHashText[i] >> 4], digits[pHashText[i] & 0xf]);
-            hashText += s;
-        }
-        // to lower
-        std::transform(hashText.begin(), hashText.end(), hashText.begin(), ::tolower);
-        if (md5 == hashText) {
+        if (info->md5 == hashText) {
             info->status = "noupdate";
             CryptReleaseContext(hProv, 0);
             return false;
@@ -132,63 +167,55 @@ bool checkAndDownload(std::wstring infourl, IupdateInfo *info) {
         return false;
     }
     info->downloaded = 0;
-    info->total = total;
     info->status = "downloading";
-    HINTERNET hfile = InternetOpenUrlW(hopen, url.c_str(), NULL, 0, flags, 0);
-    if (!hfile) {
-        info->status = "Download: InternetOpenUrlW failed: [" + std::to_string(GetLastError()) + "]";
-        InternetCloseHandle(hopen);
+    info->downloaded = 0;
+    CURL *ch = curl_easy_init();
+    if (!ch) {
+        info->status = "dl: curl_easy_init failed";
+        CryptReleaseContext(hProv, 0);
         return false;
     }
-    info->downloaded = 0;
     HANDLE hfileout = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hfileout == INVALID_HANDLE_VALUE) {
         info->status = "CreateFileW failed: [" + std::to_string(GetLastError()) + "]";
-        InternetCloseHandle(hfile);
-        InternetCloseHandle(hopen);
+        CryptReleaseContext(hProv, 0);
         return false;
     }
-    DWORD read = 0;
-    while (InternetReadFile(hfile, buffer, sizeof(buffer), &read) && read > 0) {
-        info->downloaded += read;
-        DWORD written;
-        WriteFile(hfileout, buffer, read, &written, NULL);
-        if (!CryptHashData(hHash, buffer, read, 0)) {
-            info->status = "CryptHashData failed: [" + std::to_string(GetLastError()) + "]";
-            CloseHandle(hfileout);
-            InternetCloseHandle(hfile);
-            InternetCloseHandle(hopen);
-            return false;
-        }
-    }
+    curl_easy_setopt(ch, CURLOPT_URL, info->url.c_str());
+    IWriteAndHash writeAndHash = {
+        info,
+        hHash,
+        hfileout,
+        true};
+    curl_easy_setopt(ch, CURLOPT_WRITEDATA, &writeAndHash);
+    curl_easy_setopt(ch, CURLOPT_WRITEFUNCTION, curlWriteAndHash);
+    curlOpt(ch);
+    CURLcode res = curl_easy_perform(ch);
     CloseHandle(hfileout);
-    InternetCloseHandle(hfile);
-    InternetCloseHandle(hopen);
+    if (!writeAndHash.status) {
+        CryptReleaseContext(hProv, 0);
+        return false;
+    }
+    if (res != CURLE_OK) {
+        info->status = "dl: " + std::string(curl_easy_strerror(res));
+        CryptReleaseContext(hProv, 0);
+        return false;
+    }
     info->status = "checksum";
-    // CryptGetHashParam
-    DWORD hashsize = 16;
-    BYTE hash[16];
-    if (!CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashsize, 0)) {
-        info->status = "CryptGetHashParam failed: [" + std::to_string(GetLastError()) + "]";
+    std::string hashText = toChecksum(hHash, info);
+    if (hashText == "") {
         return false;
     }
-    std::string hashText = "";
-    CHAR digits[] = "0123456789abcdef";
-    for (DWORD i = 0; i < hashsize; i++) {
-        char s[16];
-        sprintf(s, "%c%c", digits[hash[i] >> 4], digits[hash[i] & 0xf]);
-        hashText += s;
-    }
-    // to lower
-    std::transform(hashText.begin(), hashText.end(), hashText.begin(), ::tolower);
-    if (md5 != hashText) {
-        info->status = "checksum failed: " + hashText + " != " + md5;
+    if (info->md5 != hashText) {
+        info->status = "checksum failed: " + hashText + " != " + info->md5;
         return false;
     }
+    CryptReleaseContext(hProv, 0);
     info->status = "done";
     return true;
 }
+
 void checkAndDownloadInNewThread(std::wstring infourl, IupdateInfo *info) {
-    std::thread t(checkAndDownload, infourl, info);
+    std::thread t(checkAndDownloadUsingCurl, infourl, info);
     t.detach();
 }

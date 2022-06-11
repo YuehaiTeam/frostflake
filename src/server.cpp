@@ -17,8 +17,12 @@ extern WM_AUTHENCATION_DATA authData;
 extern GetDpiForMonitorProc GetDpiForMonitor_;
 extern time_t lastHotkeyPressed;
 extern std::string localAuth;
+extern unordered_map<string, string> tokens;
 
 typedef struct IupdateInfo {
+    string url;
+    string name;
+    string md5;
     string status;
     long downloaded;
     long total;
@@ -27,9 +31,9 @@ typedef struct IupdateInfo {
 void runYasInNewThread(std::string &argv);
 std::string getYasJsonContent();
 json11::Json cvAutotrackCommand(json11::Json cmd);
+void sendConnectNotify(std::string origin);
 void checkAndDownloadInNewThread(std::wstring infourl, IupdateInfo *info);
 
-unordered_map<string, string> tokens;
 unordered_map<string, IupdateInfo *> updateMap;
 
 void textResponse(httplib::Response &res, std::string obj, std::string content_type, int code = 200) {
@@ -226,6 +230,7 @@ void httpThread() {
         authData.origin = origin;
         authData.pass = false;
         authData.remember = false;
+        authData.requestRemember = req.get_param_value_count("remember") > 0;
         UUID uuid;
         UuidCreate(&uuid);
         RPC_CSTR szUuid = NULL;
@@ -237,35 +242,42 @@ void httpThread() {
             string token = auth.substr(7);
             // get windows version
             if (auth.find("Bearer ") == 0) {
-                if (token.find("-") == string::npos) {
-                    if (tokens.find(token) != tokens.end()) {
-                        authData.pass = true;
-                        utoken = tokens[token];
-                    }
-                    string dec = deviceDecrypt(token);
-                    if (dec != "") {
-                        string err = "";
-                        json11::Json parsed = json11::Json::parse(dec, err);
-                        if (err == "") {
-                            if (parsed["_"].string_value() == "remember" && parsed["o"].string_value() == origin) {
-                                long now = (long)time(NULL);
-                                int created = parsed["t"].int_value();
-                                // expire in 7 days
-                                if (now - created < 60 * 60 * 24 * 7) {
-                                    authData.pass = true;
-                                    tokens[token] = utoken;
+                vector<string> tokenvec;
+                if (token.find(" ") != string::npos) {
+                    tokenvec.push_back(token.substr(0, token.find(" ")));
+                    tokenvec.push_back(token.substr(token.find(" ") + 1));
+                } else {
+                    tokenvec.push_back(token);
+                }
+                for (auto &t : tokenvec) {
+                    if (t.find("-") == string::npos) {
+                        string dec = deviceDecrypt(t);
+                        if (dec != "") {
+                            string err = "";
+                            json11::Json parsed = json11::Json::parse(dec, err);
+                            if (err == "") {
+                                if (parsed["_"].string_value() == "remember" && parsed["o"].string_value() == origin) {
+                                    long now = (long)time(NULL);
+                                    int created = parsed["t"].int_value();
+                                    // expire in 7 days
+                                    if (now - created < 60 * 60 * 24 * 7) {
+                                        authData.pass = true;
+                                        tokens[t] = utoken;
+                                        sendConnectNotify(origin);
+                                    }
                                 }
                             }
                         }
+                    } else if (tokens.find(t) != tokens.end() && tokens[t] == origin) {
+                        json11::Json result = json11::Json::object{
+                            {"token", t},
+                            {"origin", origin},
+                            {"winver", winver()},
+                            {"hwnd", (long)activeWindow}};
+                        sendConnectNotify(origin);
+                        jsonResponse(res, result, 201);
+                        return;
                     }
-                } else if (tokens.find(token) != tokens.end() && tokens[token] == origin) {
-                    json11::Json result = json11::Json::object{
-                        {"token", token},
-                        {"origin", origin},
-                        {"winver", winver()},
-                        {"hwnd", (long)activeWindow}};
-                    jsonResponse(res, result, 201);
-                    return;
                 }
             }
         }
@@ -450,7 +462,7 @@ void httpThread() {
 
         std::string action = json["action"].string_value();
         if (action == "update") {
-            string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/cvautotrack.txt");
+            string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/cvautotrack.json");
             IupdateInfo *info = NULL;
             // check if exists
             auto it = updateMap.find("cvautotrack");
@@ -459,6 +471,9 @@ void httpThread() {
             } else {
                 info = it->second;
             }
+            info->md5 = "";
+            info->url = "";
+            info->name = "";
             info->status = "waiting";
             info->downloaded = 0;
             info->total = 0;
@@ -521,7 +536,7 @@ void httpThread() {
             jsonResponse(res, result, 400);
             return;
         }
-        string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/") + key + string(".txt");
+        string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/") + key + string(".json");
         IupdateInfo *info = NULL;
         // check if exists
         auto it = updateMap.find(key);
@@ -530,6 +545,9 @@ void httpThread() {
         } else {
             info = it->second;
         }
+        info->md5 = "";
+        info->url = "";
+        info->name = "";
         info->status = "waiting";
         info->downloaded = 0;
         info->total = 0;
@@ -552,7 +570,10 @@ void httpThread() {
         json11::Json result = json11::Json::object{
             {"msg", it->second->status},
             {"downloaded", (long)it->second->downloaded},
-            {"total", (long)it->second->total}};
+            {"total", (long)it->second->total},
+            {"md5", it->second->md5},
+            {"url", it->second->url},
+            {"name", it->second->name}};
         jsonResponse(res, result, 200);
     });
 }

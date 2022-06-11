@@ -1,5 +1,6 @@
 #include <iostream>
 #include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <websocketpp/config/asio_no_tls.hpp>
@@ -15,6 +16,7 @@ extern httplib::Server svr;
 extern std::unordered_map<std::string, std::string> tokens;
 extern std::string localAuth;
 void httpThread();
+void notIdle();
 
 using namespace std;
 using websocketpp::lib::bind;
@@ -23,6 +25,10 @@ using websocketpp::lib::placeholders::_2;
 
 // pull out the type of messages sent by our config
 typedef server::message_ptr message_ptr;
+
+std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> con_list;
+// std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> evs_list;
+// std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> evs_list_disconnected;
 
 void handleHttpRequest(httplib::Request &request, httplib::Response &response) {
     size_t count = 0;
@@ -69,6 +75,7 @@ void handleHttpRequest(httplib::Request &request, httplib::Response &response) {
     }
 }
 void on_message(server *s, websocketpp::connection_hdl hdl, message_ptr msg) {
+    notIdle();
     string payload = msg->get_payload();
     // decode json
     string jsonerr = "";
@@ -99,14 +106,83 @@ void on_message(server *s, websocketpp::connection_hdl hdl, message_ptr msg) {
     }
 }
 
+// string gen_chunked_response(string str) {
+//     string chunk = "";
+//     // chunk size in hex
+//     int size = str.size();
+//     stringstream ss;
+//     ss << std::hex << size;
+//     chunk += ss.str();
+//     chunk += "\r\n";
+//     chunk += str;
+//     chunk += "\r\n";
+//     return chunk;
+// }
+// void send_evs_header(server *s, websocketpp::connection_hdl hdl) {
+//     server::connection_ptr con = s->get_con_from_hdl(hdl);
+//     con->defer_http_response();
+//     string header = "HTTP/1.1 200 OK\r\n"
+//                     "Content-Type: text/event-stream\r\n"
+//                     "Cache-Control: no-cache\r\n"
+//                     "Connection: keep-alive\r\n"
+//                     "Access-Control-Allow-Origin: *\r\n"
+//                     "\r\n";
+//     header += "data: reconnect\n\n";
+//     con->transport_con_type::async_write(header.c_str(), header.size(),
+//                                          [hdl](const websocketpp::lib::error_code &ec) {
+//                                              if (ec) {
+//                                                  std::cout << "Error: " << ec.message() << std::endl;
+//                                                  return;
+//                                              }
+//                                              evs_list.insert(hdl);
+//                                          });
+// }
+// void send_evs_content(server *s, websocketpp::connection_hdl hdl, string msg) {
+//     try {
+//         server::connection_ptr con = s->get_con_from_hdl(hdl);
+//     } catch (std::exception &e) {
+//         std::cout << "GetEvsHandler Error:" << endl;
+//         std::cout << e.what() << std::endl;
+//         evs_list_disconnected.insert(hdl);
+//         return;
+//     }
+//     server::connection_ptr con = s->get_con_from_hdl(hdl);
+//     string chunk = "data: " + msg + "\n\n";
+//     con->transport_con_type::async_write(chunk.c_str(), chunk.size(),
+//                                          [hdl](const websocketpp::lib::error_code &ec) {
+//                                              if (ec) {
+//                                                  std::cout << "Error: " << ec.message() << std::endl;
+//                                                  return;
+//                                              }
+//                                          });
+// }
+
 void on_http(server *s, websocketpp::connection_hdl hdl) {
+    notIdle();
     server::connection_ptr con = s->get_con_from_hdl(hdl);
+    websocketpp::lib::error_code ec = con->defer_http_response();
     // forward to httplib
     httplib::Request request;
     httplib::Response response;
     response.status = 404;
     request.method = con->get_request().get_method();
     request.target = con->get_request().get_uri();
+    // // if url starts with /ws/
+    // if (request.target.find("/ws/") == 0) {
+    //     // token is in url after /ws/
+    //     string token = request.target.substr(4);
+    //     string origin = con->get_request().get_header("Origin");
+    //     boolean tokenValid = false;
+    //     if (localAuth != "" && token == localAuth) {
+    //         tokenValid = true;
+    //     } else if (tokens.find(token) != tokens.end() && (tokens[token][0] == '@' || origin == tokens[token])) {
+    //         tokenValid = true;
+    //     }
+    //     if (tokenValid) {
+    //         send_evs_header(s, hdl);
+    //         return;
+    //     }
+    // }
     websocketpp::http::parser::header_list headers = con->get_request().get_headers();
     for (auto &header : headers) {
         request.headers.insert(pair<string, string>(header.first, header.second));
@@ -120,6 +196,7 @@ void on_http(server *s, websocketpp::connection_hdl hdl) {
     for (auto &header : response.headers) {
         con->replace_header(header.first, header.second);
     }
+    con->send_http_response();
 }
 
 bool on_validate(server *s, websocketpp::connection_hdl hdl) {
@@ -145,18 +222,26 @@ bool on_validate(server *s, websocketpp::connection_hdl hdl) {
     return true;
 }
 
-std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl>> con_list;
 void on_open(server *s, websocketpp::connection_hdl hdl) {
     con_list.insert(hdl);
+    notIdle();
 }
 void on_close(server *s, websocketpp::connection_hdl hdl) {
     con_list.erase(hdl);
+    notIdle();
 }
 
 void ws_broadcast(string msg) {
     for (auto &hdl : con_list) {
         wss.send(hdl, msg, websocketpp::frame::opcode::text);
     }
+    // for (auto &hdl : evs_list) {
+    //     send_evs_content(&wss, hdl, msg);
+    // }
+    // for (auto &hdl : evs_list_disconnected) {
+    //     evs_list.erase(hdl);
+    // }
+    // evs_list_disconnected.empty();
 }
 void ws_broadcast(string action, string msg) {
     json11::Json json = json11::Json::object{{"action", action}, {"data", msg}};
@@ -164,17 +249,24 @@ void ws_broadcast(string action, string msg) {
     ws_broadcast(response_str);
 }
 
+int ws_count_connection() {
+    return con_list.size();
+}
+int ws_count_evs_connection() {
+    return 0;
+//     return evs_list.size();
+}
+
 void ws_server() {
     httpThread();
     try {
-        wss.set_access_channels(websocketpp::log::alevel::all);
-        wss.clear_access_channels(websocketpp::log::alevel::frame_payload);
         wss.init_asio();
         wss.set_message_handler(bind(&on_message, &wss, ::_1, ::_2));
         wss.set_validate_handler(bind(&on_validate, &wss, ::_1));
         wss.set_http_handler(bind(&on_http, &wss, ::_1));
         wss.set_open_handler(bind(&on_open, &wss, ::_1));
         wss.set_close_handler(bind(&on_close, &wss, ::_1));
+        // wss.set_open_handshake_timeout(60 * 1e3);
         wss.listen("127.0.0.1", "32333");
         wss.start_accept();
         wss.run();
