@@ -21,6 +21,6 @@ include_directories (${websocketpp_INCLUDE_DIRS})
 find_package(CURL CONFIG REQUIRED)
 include_directories (${CURL_INCLUDE_DIRS})
 
-target_link_libraries(cocogoat-control Rpcrt4.lib shlwapi.lib crypt32.lib Secur32.lib websocketpp::websocketpp ${PROJECT_SOURCE_DIR}/lib/libcurl.lib)
+target_link_libraries(cocogoat-control Rpcrt4.lib shlwapi.lib crypt32.lib imagehlp.lib websocketpp::websocketpp ${PROJECT_SOURCE_DIR}/lib/libcurl.lib)
 
 set_target_properties(cocogoat-control PROPERTIES LINK_FLAGS "/SUBSYSTEM:WINDOWS")

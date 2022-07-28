@@ -61,7 +61,7 @@ void emptyResponse(httplib::Response &res, int status = 204) {
     res.set_header("Server", string("cocogoat-control/") + string(VERSION));
 }
 
-boolean apiPreChck(const httplib::Request &req, httplib::Response &res) {
+boolean apiPreChck(const httplib::Request &req, httplib::Response &res, bool allowCancel = false) {
     if (req.remote_addr != "WS") {
         if (req.headers.find("Origin") == req.headers.end()) {
             json11::Json result = json11::Json::object{
@@ -90,7 +90,7 @@ boolean apiPreChck(const httplib::Request &req, httplib::Response &res) {
             return false;
         }
     }
-    if (std::time(0) - lastHotkeyPressed < 5) {
+    if (allowCancel && std::time(0) - lastHotkeyPressed < 5) {
         // Stop because hotkey pressed in the last 5 seconds
         json11::Json result = json11::Json::object{
             {"msg", "Stopped by user"},
@@ -377,7 +377,7 @@ void httpThread() {
         jsonResponse(res, result);
     });
     svr.Post("/api/SendMessage", [](const httplib::Request &req, httplib::Response &res) {
-        if (!apiPreChck(req, res))
+        if (!apiPreChck(req, res, true))
             return;
         if (!req.has_param("hWnd") || !req.has_param("Msg") || !req.has_param("wParam") || !req.has_param("lParam")) {
             json11::Json result = json11::Json::object{
@@ -396,7 +396,7 @@ void httpThread() {
         emptyResponse(res);
     });
     svr.Post("/api/mouse_event", [](const httplib::Request &req, httplib::Response &res) {
-        if (!apiPreChck(req, res))
+        if (!apiPreChck(req, res, true))
             return;
         if (!req.has_param("dwFlags") || !req.has_param("dx") || !req.has_param("dy") || !req.has_param("dwData")) {
             json11::Json result = json11::Json::object{
@@ -418,7 +418,7 @@ void httpThread() {
         emptyResponse(res);
     });
     svr.Post("/api/keybd_event", [](const httplib::Request &req, httplib::Response &res) {
-        if (!apiPreChck(req, res))
+        if (!apiPreChck(req, res, true))
             return;
         if (!req.has_param("bVk") || !req.has_param("bScan") || !req.has_param("dwFlags")) {
             json11::Json result = json11::Json::object{
@@ -434,7 +434,7 @@ void httpThread() {
         emptyResponse(res);
     });
     svr.Post("/api/SetCursorPos", [](const httplib::Request &req, httplib::Response &res) {
-        if (!apiPreChck(req, res))
+        if (!apiPreChck(req, res, true))
             return;
         if (!req.has_param("x") || !req.has_param("y")) {
             json11::Json result = json11::Json::object{
@@ -462,7 +462,7 @@ void httpThread() {
 
         std::string action = json["action"].string_value();
         if (action == "update") {
-            string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/cvautotrack.json");
+            string infoUrl = string("https://77.xyget.cn/upgrade/cvautotrack.json");
             IupdateInfo *info = NULL;
             // check if exists
             auto it = updateMap.find("cvautotrack");
@@ -536,7 +536,7 @@ void httpThread() {
             jsonResponse(res, result, 400);
             return;
         }
-        string infoUrl = string("https://cocogoat-1251105598.file.myqcloud.com/77/upgrade/") + key + string(".json");
+        string infoUrl = string("https://77.xyget.cn/upgrade/") + key + string(".json");
         IupdateInfo *info = NULL;
         // check if exists
         auto it = updateMap.find(key);

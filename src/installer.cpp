@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 
-#include "../version.h"
-#include <shlobj_core.h>
 #include <windows.h>
+
+#include "../version.h"
+#include <imagehlp.h>
+#include <shlobj_core.h>
 
 bool fileExists(std::wstring name);
 std::wstring getExePath();
@@ -206,30 +208,22 @@ boolean isInProgramFiles() {
     return false;
 }
 
-size_t getFileSize(std::wstring path) {
-    WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (!GetFileAttributesEx(path.c_str(), GetFileExInfoStandard, &fad))
-        return -1; // error condition, could call GetLastError to find out more
-    LARGE_INTEGER size;
-    size.HighPart = fad.nFileSizeHigh;
-    size.LowPart = fad.nFileSizeLow;
-    return size.QuadPart;
-}
-
 boolean checkInstall() {
     std::wstring installPath = getInstallPath(L"cocogoat-control.exe");
     if (installPath == L"") {
         return false;
     }
-    // get install path file size
-    size_t size = getFileSize(installPath);
-    if (size < 0) {
-        return false;
+    DWORD temp = 1;
+    DWORD selfChksum = 0;
+    DWORD targChksum = 0;
+    if (MapFileAndCheckSum(installPath.c_str(), &temp, &targChksum) != CHECKSUM_SUCCESS) {
+        return true;
     }
     std::wstring exePathW = getExePath();
-    // check exe path file size
-    size_t exeSize = getFileSize(exePathW);
-    if (size != exeSize) {
+    if (MapFileAndCheckSum(exePathW.c_str(), &temp, &selfChksum) != CHECKSUM_SUCCESS) {
+        return true;
+    }
+    if (selfChksum != targChksum) {
         return false;
     }
     return true;
@@ -290,7 +284,17 @@ boolean runInstaller() {
     std::wstring installPath = getInstallPath(L"cocogoat-control.exe");
     if (!CopyFileW(exePathW.c_str(), installPath.c_str(), FALSE)) {
         DWORD err = GetLastError();
-        MessageBoxW(NULL, (ToWString("安装失败：") + std::to_wstring(err)).c_str(), L"错误", MB_OK | MB_ICONERROR);
+        // FormatMessage
+        LPWSTR lpMsgBuf = NULL;
+        DWORD dw = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&lpMsgBuf, 0, NULL);
+        if (dw == 0) {
+            lpMsgBuf = L"";
+        }
+        // to wstring
+        std::wstring errMsg = lpMsgBuf;
+        LocalFree(lpMsgBuf);
+        MessageBoxW(NULL, (L"复制文件到 " + installPath + L" 失败 (" + std::to_wstring(err) + L")：" + errMsg).c_str(), L"椰羊：安装失败", MB_OK | MB_ICONERROR);
+        exit(301);
         return false;
     }
     if (!registerScheduleTask(installPath)) {
@@ -472,5 +476,8 @@ boolean autoElevate(PSTR lpCmdLine) {
     if (checkIfElevated()) {
         return false;
     }
-    return elevate(lpCmdLine);
+    if (!elevate(lpCmdLine)) {
+        MessageBoxW(NULL, L"由于需要进行版本更新，请以管理员权限运行本程序。", L"错误", MB_OK | MB_ICONERROR);
+    }
+    return true;
 }
