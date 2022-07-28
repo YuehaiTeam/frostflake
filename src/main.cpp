@@ -9,6 +9,7 @@
 #include "../MfcClass/Manager.h"
 #include "../lib/dpiAware.h"
 #include "../lib/httplib.h"
+#include "../lib/sodium.h"
 #include "../lib/struct.h"
 
 #include <curl/curl.h>
@@ -112,6 +113,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         tokens.insert_or_assign(args["register-token"], args["register-origin"]);
     }
     curl_global_init(CURL_GLOBAL_ALL);
+    sodium_init();
     thread tUi(uiThread);
     thread tHttp(ws_server);
     thread tIdleTimer(tmr_run);
