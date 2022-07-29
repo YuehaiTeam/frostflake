@@ -34,7 +34,6 @@ boolean hideWindow = true;
 
 unordered_map<string, string> args;
 unordered_map<string, string> tokens;
-extern unordered_map<string, string> knownAppNames;
 
 void httpThread();
 void uiThread();
@@ -45,6 +44,7 @@ void tmr_stop();
 boolean isFocusAssistEnabled();
 boolean autoElevate(PSTR lpCmdLine);
 string readCmdFromPipe();
+bool verifyToken(unordered_map<string, string> &args);
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, INT nCmdShow) {
     SetProcessDpiAwarenessContext_ = (SetProcessDpiAwarenessContextProc)GetProcAddress(GetModuleHandle(TEXT("user32.dll")), "SetProcessDpiAwarenessContext");
@@ -109,7 +109,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         hideWindow = args.find("show-window") != args.end() ? false : hideWindow;
         hideWindow = args.find("hide-window") != args.end() ? true : hideWindow;
     }
-    if (args.find("register-token") != args.end() && args.find("register-origin") != args.end() && knownAppNames.find(args["register-origin"]) != knownAppNames.end()) {
+
+    if (verifyToken(args)) {
         tokens.insert_or_assign(args["register-token"], args["register-origin"]);
     }
     curl_global_init(CURL_GLOBAL_ALL);

@@ -14,6 +14,7 @@ extern boolean hideWindow;
 extern unordered_map<string, string> args;
 extern unordered_map<string, string> knownAppNames;
 void ws_broadcast(string action, string msg);
+bool verifyToken(unordered_map<string, string> &args);
 
 void ShowContextMenu(HWND hwnd, POINT pt) {
     UINT menuItemId = 0;
@@ -84,7 +85,7 @@ void uiOnCustomMessage(Control *control, int message, WPARAM wParam, LPARAM lPar
             authData.remember = true;
         }
         windowPtr->setTopMost(false);
-        if(hideWindow) {
+        if (hideWindow) {
             windowPtr->hide();
         }
     } else if (message == WM_TRAY_ICON) {
@@ -168,7 +169,7 @@ void uiThread() {
         window.show();
     }
     tray.Create(window.hwnd(), Icon(1), L"椰羊·霜华插件", WM_TRAY_ICON, 0);
-    if (args.find("register-origin") != args.end() && args.find("register-token") != args.end()) {
+    if (verifyToken(args)) {
         sendConnectNotify(args["register-origin"]);
     } else {
         sendNotify(ToWString("椰羊·霜华插件已启动"), ToWString("您可以随时点击托盘图标的右键菜单退出"));
