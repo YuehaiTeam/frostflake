@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <windows.h>
 std::wstring ToWString(const std::string &str);
+std::string ToString(const std::wstring &str);
 std::wstring getInstallPath(std::wstring path);
 // get exe path
 std::wstring getExePath() {
@@ -25,6 +26,18 @@ std::wstring getRelativePath(std::string name) {
 bool fileExists(std::wstring name) {
     return GetFileAttributesW(name.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
+
+std::string errToString(HRESULT err) {
+    LPWSTR lpMsgBuf = NULL;
+    DWORD dw = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&lpMsgBuf, 0, NULL);
+    if (dw == 0) {
+        lpMsgBuf = L"";
+    }
+    std::string ret = ToString(std::wstring(lpMsgBuf));
+    LocalFree(lpMsgBuf);
+    return ret;
+}
+
 std::wstring getLocalPath(std::string name) {
     if (fileExists(getRelativePath("cocogoat")) || fileExists(getRelativePath("cocogoat-noupdate")) || fileExists(getRelativePath(name))) {
         return getRelativePath(name);
