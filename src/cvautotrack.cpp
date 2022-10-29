@@ -189,7 +189,7 @@ void threadedTrack() {
             {"data", data}};
         std::string json = obj.dump();
         ws_broadcast(json);
-        Sleep(err > 0 ? 500 : 100);
+        Sleep(err > 0 ? 800 : 250);
     }
 }
 bool startTrack() {

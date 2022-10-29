@@ -1,7 +1,7 @@
 1 ICON DISCARDABLE "cocogoat.ico"
 1 VERSIONINFO
-FILEVERSION 1,2,6,0
-PRODUCTVERSION 1,2,6,0
+FILEVERSION 1,3,0,0
+PRODUCTVERSION 1,3,0,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
@@ -9,13 +9,13 @@ BEGIN
     BEGIN
         VALUE "CompanyName",      "YuehaiTeam"
         VALUE "FileDescription",  "cocogoat Frostflake Plugin"
-        VALUE "FileVersion",      "1.2.6.0"
+        VALUE "FileVersion",      "1.3.0.0"
     END
     BLOCK "080404E4"
     BEGIN
         VALUE "CompanyName",      "月海亭 YuehaiTeam"
         VALUE "FileDescription",  "椰羊·霜华插件"
-        VALUE "FileVersion",      "1.2.6.0"
+        VALUE "FileVersion",      "1.3.0.0"
     END
   END
   BLOCK "VarFileInfo"
