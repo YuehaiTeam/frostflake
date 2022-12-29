@@ -1,0 +1,10 @@
+{
+    "name": "frostflake",
+    "version-string": "1.3.1",
+    "dependencies": [
+        {
+            "name": "websocketpp",
+            "platform": "windows"
+        }
+    ]
+}
