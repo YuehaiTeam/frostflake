@@ -4,7 +4,11 @@
     "dependencies": [
         {
             "name": "websocketpp",
-            "platform": "windows"
+            "platform": "windows & static"
+        },
+        {
+            "name": "curl",
+            "platform": "windows & static"
         }
     ]
 }
