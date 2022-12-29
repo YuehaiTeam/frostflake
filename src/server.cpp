@@ -201,6 +201,53 @@ int winver() {
     }
     return ver;
 }
+bool isSwapEffectUpgradeEnabled() {
+    // SwapEffectUpgradeEnable, or "Optimizations for windowed games", will make Bitblt unavailable
+    // open \HKEY_CURRENT_USER\Software\Microsoft\DirectX\UserGpuPreferences
+    // and read DirectXUserGlobalSettings
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\DirectX\\UserGpuPreferences", 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+        return false;
+    }
+    char buf[1024];
+    DWORD size = sizeof(buf);
+    // find value name include "Yuanshen.exe" or "GenshinImpact.exe"
+    DWORD index = 0;
+    while (true) {
+        char name[1024];
+        DWORD nameSize = sizeof(name);
+        if (RegEnumValueA(hKey, index, name, &nameSize, NULL, NULL, NULL, NULL) != ERROR_SUCCESS) {
+            break;
+        }
+        if (std::string(name).find("YuanShen.exe") != std::string::npos || std::string(name).find("GenshinImpact.exe") != std::string::npos) {
+            DWORD type;
+            DWORD valueSize = sizeof(buf);
+            if (RegQueryValueExA(hKey, name, NULL, &type, (LPBYTE)buf, &valueSize) == ERROR_SUCCESS && type == REG_SZ) {
+                std::string value = buf;
+                if (value.find("SwapEffectUpgradeEnable=1") != std::string::npos) {
+                    RegCloseKey(hKey);
+                    return true;
+                }
+                if (value.find("SwapEffectUpgradeEnable=0") != std::string::npos) {
+                    RegCloseKey(hKey);
+                    return false;
+                }
+            }
+        }
+        index++;
+    }
+    if (RegQueryValueExA(hKey, "DirectXUserGlobalSettings", NULL, NULL, (LPBYTE)buf, &size) != ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return false;
+    }
+    std::string DirectXUserGlobalSettings = buf;
+    if (DirectXUserGlobalSettings.find("SwapEffectUpgradeEnable=1") != std::string::npos) {
+        RegCloseKey(hKey);
+        return true;
+    }
+    RegCloseKey(hKey);
+    return false;
+}
 
 void httpThread() {
     svr.set_keep_alive_timeout(300);
@@ -273,6 +320,7 @@ void httpThread() {
                             {"token", t},
                             {"origin", origin},
                             {"winver", winver()},
+                            {"swapEffectUpgrade", isSwapEffectUpgradeEnabled()},
                             {"hwnd", (long)activeWindow}};
                         sendConnectNotify(origin);
                         jsonResponse(res, result, 201);
@@ -307,6 +355,7 @@ void httpThread() {
             {"remember", remember},
             {"origin", origin},
             {"winver", winver()},
+            {"swapEffectUpgrade", isSwapEffectUpgradeEnabled()},
             {"hwnd", (long)activeWindow}};
         jsonResponse(res, result, 201);
     });
