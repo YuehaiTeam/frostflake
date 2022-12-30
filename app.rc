@@ -1,3 +1,4 @@
+#pragma code_page(65001)
 1 ICON DISCARDABLE "cocogoat.ico"
 1 VERSIONINFO
 FILEVERSION 1,3,1,0
@@ -13,8 +14,8 @@ BEGIN
     END
     BLOCK "080404E4"
     BEGIN
-        VALUE "CompanyName",      "ÔÂº£Í¤ YuehaiTeam"
-        VALUE "FileDescription",  "Ò¬Ñò¡¤Ëª»ª²å¼ş"
+        VALUE "CompanyName",      "æœˆæµ·äº­ YuehaiTeam"
+        VALUE "FileDescription",  "æ¤°ç¾ŠÂ·éœœåæ’ä»¶"
         VALUE "FileVersion",      "1.3.1.0"
     END
   END
@@ -28,6 +29,6 @@ END
 BEGIN
     POPUP ""
 	BEGIN
-	MENUITEM "ÍË³ö (E&xit)", 124
+	MENUITEM "é€€å‡º (E&xit)", 124
 	END
 END
