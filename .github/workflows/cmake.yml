@@ -22,5 +22,13 @@ jobs:
               run: cmake --build build --config MinSizeRel
             - uses: actions/upload-artifact@v3.1.1
               with:
+                  name: cocogoat-control-uncompressed
+                  path: build/MinSizeRel/*.exe
+            - uses: crazy-max/ghaction-upx@v2
+              with:
+                version: latest
+                files: build/MinSizeRel/*.exe
+            - uses: actions/upload-artifact@v3.1.1
+              with:
                   name: cocogoat-control
                   path: build/MinSizeRel/*.exe
