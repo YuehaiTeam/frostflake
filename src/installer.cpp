@@ -56,9 +56,9 @@ boolean elevate(PSTR lpCmdLine, std::wstring runPath = L"") {
 
 boolean registerScheduleTask(std::wstring path) {
     // gen cmd
-    std::wstring cmd = ToWString("schtasks /create /tn \"椰羊插件（以管理员身份运行）\" /RL HIGHEST /sc ONEVENT /EC Application /MO *[System/EventID=32333] /f /TR \"");
+    std::wstring cmd = ToWString("schtasks /create /tn \"椰羊插件（以管理员身份运行）\" /RL HIGHEST /sc ONEVENT /EC Application /MO *[System/EventID=32333] /f /TR \"'");
     cmd += path;
-    cmd += ToWString("\"");
+    cmd += ToWString("\"'");
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
     si.wShowWindow = SW_HIDE;
@@ -191,7 +191,7 @@ boolean queryScheduleTask() {
     }
     std::wstring exePathW = getExePath();
     // check exe path in res
-    if (res.find(exePathW) == std::wstring::npos) {
+    if (res.find(L"'" + exePathW) == std::wstring::npos && res.find(L"\"" + exePathW) == std::wstring::npos) {
         return false;
     }
     return true;
