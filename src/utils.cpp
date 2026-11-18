@@ -9,18 +9,17 @@ std::string ToString(const std::wstring &str);
 std::wstring getInstallPath(std::wstring path);
 // get exe path
 std::wstring getExePath() {
-    WCHAR szPath[MAX_PATH];
-    GetModuleFileNameW(NULL, szPath, MAX_PATH);
-    return szPath;
+    WCHAR szPath[MAX_PATH]{};
+    DWORD length = GetModuleFileNameW(NULL, szPath, MAX_PATH);
+    return length && length < MAX_PATH ? std::wstring(szPath, length) : L"";
 }
 // relative path to exe
 std::wstring getRelativePath(std::string name) {
-    // get exe path
-    WCHAR szPath[MAX_PATH];
-    GetModuleFileNameW(NULL, szPath, MAX_PATH);
-    PathRemoveFileSpecW(szPath);
-    PathAppendW(szPath, ToWString(name).c_str());
-    return szPath;
+    std::wstring exe = getExePath();
+    auto end = exe.find_last_of(L'\\');
+    if (end == exe.npos) return {};
+    auto path = exe.substr(0, end + 1) + ToWString(name);
+    return path.size() < MAX_PATH ? path : L"";
 }
 // check file exists
 bool fileExists(std::wstring name) {
@@ -39,9 +38,11 @@ std::string errToString(HRESULT err) {
 }
 
 std::wstring getLocalPath(std::string name) {
-    if (fileExists(getRelativePath("cocogoat")) || fileExists(getRelativePath("cocogoat-noupdate")) || fileExists(getRelativePath(name))) {
-        return getRelativePath(name);
-    }
+    if (name.empty() || name.back() == '.' || name.back() == ' ' ||
+        name.find('\0') != name.npos || name.find_first_of("\\/:*?\"<>|") != name.npos) return {};
+    auto local = getRelativePath(name);
+    if (fileExists(getRelativePath("cocogoat")) || fileExists(getRelativePath("cocogoat-noupdate")) ||
+        fileExists(local)) return local;
     return getInstallPath(ToWString(name));
 }
 std::string deviceEncrypt(std::string str) {

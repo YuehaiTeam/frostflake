@@ -16,6 +16,7 @@
 
 #include "../lib/json11.hpp"
 #include <curl/curl.h>
+void recordInstalledComponent(const std::wstring &path);
 
 typedef struct IupdateInfo {
     std::string url;
@@ -176,11 +177,13 @@ bool checkAndDownloadUsingCurl(std::wstring infourl, IupdateInfo *info) {
         return false;
     }
     HANDLE hfileout = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    DWORD openStatus = GetLastError();
     if (hfileout == INVALID_HANDLE_VALUE) {
-        info->status = "CreateFileW failed: [" + std::to_string(GetLastError()) + "]";
+        info->status = "CreateFileW failed: [" + std::to_string(openStatus) + "]";
         CryptReleaseContext(hProv, 0);
         return false;
     }
+    if (openStatus != ERROR_ALREADY_EXISTS) recordInstalledComponent(path);
     curl_easy_setopt(ch, CURLOPT_URL, info->url.c_str());
     IWriteAndHash writeAndHash = {
         info,

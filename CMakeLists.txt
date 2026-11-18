@@ -8,6 +8,9 @@ include_directories("${PROJECT_SOURCE_DIR}/lib/MfcClass")
 include_directories("${PROJECT_SOURCE_DIR}/lib")
 add_executable(cocogoat-control cocogoat-control.manifest src/main.cpp src/server.cpp src/idleTimer.cpp src/tokenVerify.cpp src/ws.cpp src/tray.cpp src/knownApps.cpp src/ui.cpp src/utils.cpp src/cvautotrack.cpp src/cvautotrackImpl.cpp src/download.cpp src/yas.cpp src/scheme.cpp lib/json11.cpp src/installer.cpp ${SOURCE} app.rc)
 set_target_properties(cocogoat-control PROPERTIES WIN32_EXECUTABLE TRUE)
+target_sources(cocogoat-control PRIVATE src/installDialog.cpp)
+target_compile_features(cocogoat-control PRIVATE cxx_std_17)
+set_source_files_properties(src/main.cpp src/download.cpp PROPERTIES COMPILE_DEFINITIONS CURL_STATICLIB)
 ADD_DEFINITIONS(-DUNICODE)
 ADD_DEFINITIONS(-D_UNICODE)
 # _WIN32_WINNT=0x0601
@@ -20,6 +23,6 @@ include_directories (${websocketpp_INCLUDE_DIRS})
 find_package(CURL CONFIG REQUIRED)
 include_directories (${CURL_INCLUDE_DIRS})
 
-target_link_libraries(cocogoat-control Rpcrt4.lib shlwapi.lib crypt32.lib imagehlp.lib websocketpp::websocketpp ${PROJECT_SOURCE_DIR}/lib/libcurl.lib ${PROJECT_SOURCE_DIR}/lib/libsodium.lib)
+target_link_libraries(cocogoat-control Rpcrt4.lib shlwapi.lib crypt32.lib imagehlp.lib comctl32.lib uxtheme.lib websocketpp::websocketpp ${PROJECT_SOURCE_DIR}/lib/libcurl.lib ${PROJECT_SOURCE_DIR}/lib/libsodium.lib)
 
 set_target_properties(cocogoat-control PROPERTIES LINK_FLAGS "/SUBSYSTEM:WINDOWS")
