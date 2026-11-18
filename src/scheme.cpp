@@ -22,9 +22,8 @@ boolean registerUrlScheme(std::wstring path) {
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\cocogoat-control\\shell\\open\\command", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &hKey, NULL) != ERROR_SUCCESS) {
         return false;
     }
-    WCHAR cmd[MAX_PATH];
-    wsprintfW(cmd, L"\"%s\" \"%%1\"", path.c_str());
-    if (RegSetValueExW(hKey, NULL, 0, REG_SZ, (BYTE *)cmd, (wcslen(cmd) + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
+    std::wstring cmd = L"\"" + path + L"\" \"%1\"";
+    if (RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE *)cmd.c_str(), (cmd.size() + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
         return false;
     }
     if (RegCloseKey(hKey) != ERROR_SUCCESS) {
@@ -34,8 +33,8 @@ boolean registerUrlScheme(std::wstring path) {
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\cocogoat-control\\DefaultIcon", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &hKey, NULL) != ERROR_SUCCESS) {
         return false;
     }
-    wsprintfW(cmd, L"\"%s\",0", path.c_str());
-    if (RegSetValueExW(hKey, NULL, 0, REG_SZ, (BYTE *)cmd, (wcslen(cmd) + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
+    cmd = L"\"" + path + L"\",0";
+    if (RegSetValueExW(hKey, NULL, 0, REG_SZ, (const BYTE *)cmd.c_str(), (cmd.size() + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
         return false;
     }
     if (RegCloseKey(hKey) != ERROR_SUCCESS) {
@@ -58,8 +57,6 @@ boolean registerUrlScheme(std::wstring path) {
 
 boolean removeScheme() {
     // regdeletetree
-    if (RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\cocogoat-control") != ERROR_SUCCESS) {
-        return false;
-    }
-    return true;
+    LSTATUS status = RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\cocogoat-control");
+    return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
 }

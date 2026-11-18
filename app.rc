@@ -1,5 +1,23 @@
 #pragma code_page(65001)
+#include <winres.h>
+#include "src/installDialog.h"
 1 ICON DISCARDABLE "cocogoat.ico"
+IDI_INSTALL_LOGO ICON "installer-logo.ico"
+302 RCDATA "installer-logo.LICENSE"
+
+IDD_INSTALL DIALOGEX 0, 0, 300, 144
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "安装椰羊 · 霜华插件"
+FONT 9, "Microsoft YaHei UI"
+BEGIN
+    CONTROL "椰羊 · 霜华插件", IDC_INSTALL_HEADER, "Static", SS_OWNERDRAW, 0, 0, 300, 48
+    LTEXT "安装位置(&L)", -1, 16, 62, 250, 11
+    EDITTEXT IDC_INSTALL_PATH, 16, 77, 214, 16, ES_AUTOHSCROLL
+    PUSHBUTTON "浏览(&B)…", IDC_INSTALL_BROWSE, 236, 76, 48, 18
+    LTEXT "请选择一个空文件夹，或输入要新建的文件夹路径。", -1, 16, 98, 268, 12
+    PUSHBUTTON "取消", IDCANCEL, 178, 118, 48, 18
+    DEFPUSHBUTTON "安装(&I)", IDOK, 232, 118, 52, 18, BS_OWNERDRAW
+END
 1 VERSIONINFO
 FILEVERSION 1,3,1,0
 PRODUCTVERSION 1,3,1,0

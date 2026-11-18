@@ -1,26 +1,87 @@
-#include <iterator>
+#include <cstring>
+#include <fstream>
 #include <string>
-#include <vector>
 
 #include <windows.h>
 
 #include "../version.h"
-#include <imagehlp.h>
 #include <shlobj_core.h>
+#include <shlwapi.h>
+#include "installDialog.h"
 
-bool fileExists(std::wstring name);
 std::wstring getExePath();
 boolean removeScheme();
 boolean registerUrlScheme(std::wstring path);
 std::wstring ToWString(const std::string &str);
 
+namespace {
+const wchar_t uninstallKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\cocogoat-control";
+const wchar_t programName[] = L"cocogoat-control.exe";
+
+std::wstring joinPath(const std::wstring &root, const std::wstring &leaf) {
+    return root.empty() || leaf.empty() ? root : root + L"\\" + leaf;
+}
+
+std::wstring defaultDirectory() {
+    wchar_t folder[MAX_PATH]{};
+    if (!SHGetSpecialFolderPathW(nullptr, folder, CSIDL_PROGRAM_FILES, FALSE)) return {};
+    return joinPath(folder, L"cocogoat-control");
+}
+
+bool samePath(const std::wstring &a, const std::wstring &b) {
+    return !a.empty() && CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
+}
+
+// Paths later passed to legacy Win32 APIs must be absolute, local and fit MAX_PATH.
+bool normalizeDirectory(std::wstring &path) {
+    for (auto &c : path) if (c == L'/') c = L'\\';
+    while (path.size() > 3 && path.back() == L'\\') path.pop_back();
+    if (path.size() < 4 || path.substr(1, 2) != L":\\" ||
+        path.find_first_of(L"<>:\"|?*", 2) != path.npos ||
+        path.size() + 1 + wcslen(programName) >= MAX_PATH) return false;
+    if (GetDriveTypeW(path.substr(0, 3).c_str()) != DRIVE_FIXED) return false;
+    for (size_t start = 3; start < path.size();) {
+        size_t end = path.find(L'\\', start);
+        std::wstring part = path.substr(start, end - start);
+        if (part.empty() || part.back() == L'.' || part.back() == L' ' ||
+            part.find_first_of(L"\r\n\t") != part.npos) return false;
+        DWORD attrs = GetFileAttributesW(path.substr(0, end).c_str());
+        if (attrs != INVALID_FILE_ATTRIBUTES &&
+            ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) || !(attrs & FILE_ATTRIBUTE_DIRECTORY))) return false;
+        if (end == path.npos) break;
+        start = end + 1;
+    }
+    wchar_t full[MAX_PATH];
+    DWORD length = GetFullPathNameW(path.c_str(), MAX_PATH, full, nullptr);
+    return length && length < MAX_PATH && samePath(path, full);
+}
+
+std::wstring registeredDirectory(bool *hasRecord = nullptr) {
+    wchar_t path[MAX_PATH]{};
+    DWORD size = sizeof(path);
+    LSTATUS status = RegGetValueW(HKEY_LOCAL_MACHINE, uninstallKey, L"InstallLocation",
+                                  RRF_RT_REG_SZ, nullptr, path, &size);
+    if (hasRecord) *hasRecord = status != ERROR_FILE_NOT_FOUND && status != ERROR_PATH_NOT_FOUND;
+    if (status != ERROR_SUCCESS) return {};
+    std::wstring result(path);
+    return normalizeDirectory(result) ? result : L"";
+}
+}
+
+std::wstring validateInstallDirectory(std::wstring &path) {
+    if (!normalizeDirectory(path))
+        return L"请输入本地磁盘上有效的文件夹路径。不能使用盘符根目录、链接目录或过长的路径。";
+    DWORD attrs = GetFileAttributesW(path.c_str());
+    if (attrs != INVALID_FILE_ATTRIBUTES && !PathIsDirectoryEmptyW(path.c_str()))
+        return L"此文件夹已有其他文件。请选择空文件夹，或在路径末尾添加新的文件夹名称。";
+    return {};
+}
+
 std::wstring getInstallPath(std::wstring path) {
-    // Program Files
-    WCHAR programFilesPath[MAX_PATH];
-    SHGetSpecialFolderPathW(NULL, programFilesPath, CSIDL_PROGRAM_FILES, FALSE);
-    // cocogoat-control
-    std::wstring installPath = programFilesPath + std::wstring(L"\\cocogoat-control") + (path == L"" ? L"" : (L"\\" + path));
-    return installPath;
+    bool recorded;
+    std::wstring directory = registeredDirectory(&recorded);
+    auto result = joinPath(recorded ? directory : defaultDirectory(), path);
+    return result.size() < MAX_PATH ? result : L"";
 }
 
 boolean checkIfElevated() {
@@ -197,44 +258,29 @@ boolean queryScheduleTask() {
     return true;
 }
 
-boolean isInProgramFiles() {
-    WCHAR path[MAX_PATH];
-    GetModuleFileNameW(NULL, path, MAX_PATH);
-    std::wstring pathW = path;
-    std::wstring programFiles = getInstallPath(L"");
-    if (pathW.find(programFiles) != std::wstring::npos) {
-        return true;
-    }
-    return false;
+bool sameInstalledBuild(const std::wstring &installPath) {
+    std::ifstream self(getExePath().c_str(), std::ios::binary | std::ios::ate);
+    std::ifstream installed(installPath.c_str(), std::ios::binary | std::ios::ate);
+    if (!self || !installed || self.tellg() != installed.tellg()) return false;
+    self.seekg(0);
+    installed.seekg(0);
+    char a[8192], b[8192];
+    do {
+        self.read(a, sizeof(a));
+        installed.read(b, sizeof(b));
+        if (self.gcount() != installed.gcount() || std::memcmp(a, b, self.gcount()) != 0) return false;
+    } while (self && installed);
+    return self.eof() && installed.eof() && !self.bad() && !installed.bad();
 }
 
-boolean checkInstall() {
-    std::wstring installPath = getInstallPath(L"cocogoat-control.exe");
-    if (installPath == L"") {
-        return false;
-    }
-    DWORD temp = 1;
-    DWORD selfChksum = 0;
-    DWORD targChksum = 0;
-    if (MapFileAndCheckSum(installPath.c_str(), &temp, &targChksum) != CHECKSUM_SUCCESS) {
-        return true;
-    }
-    std::wstring exePathW = getExePath();
-    if (MapFileAndCheckSum(exePathW.c_str(), &temp, &selfChksum) != CHECKSUM_SUCCESS) {
-        return true;
-    }
-    if (selfChksum != targChksum) {
-        return false;
-    }
-    return true;
-}
-
-boolean registerUninstallItem(std::wstring installPath) {
+boolean registerUninstallItem(const std::wstring &installFolder) {
+    const std::wstring installPath = joinPath(installFolder, programName);
     // write uninstall info to registry
     HKEY hKey;
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\cocogoat-control", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) {
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, uninstallKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) {
         return false;
     }
+    struct CloseKey { HKEY key; ~CloseKey() { RegCloseKey(key); } } closeKey{hKey};
     std::wstring friendlyAppName = ToWString("椰羊·霜华插件");
     if (RegSetValueExW(hKey, L"DisplayName", 0, REG_SZ, (BYTE *)friendlyAppName.c_str(), (wcslen(friendlyAppName.c_str()) + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
         return false;
@@ -263,7 +309,6 @@ boolean registerUninstallItem(std::wstring installPath) {
         return false;
     }
     // installLocation
-    std::wstring installFolder = getInstallPath(L"");
     if (RegSetValueExW(hKey, L"InstallLocation", 0, REG_SZ, (BYTE *)installFolder.c_str(), (wcslen(installFolder.c_str()) + 1) * sizeof(WCHAR)) != ERROR_SUCCESS) {
         return false;
     }
@@ -271,69 +316,167 @@ boolean registerUninstallItem(std::wstring installPath) {
 }
 
 boolean removeUninstallItem() {
-    if (RegDeleteTreeW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\cocogoat-control") != ERROR_SUCCESS) {
-        return false;
-    }
-    return true;
+    LSTATUS status = RegDeleteTreeW(HKEY_LOCAL_MACHINE, uninstallKey);
+    return status == ERROR_SUCCESS || status == ERROR_FILE_NOT_FOUND;
 }
 
-boolean runInstaller() {
-    CreateDirectoryW(getInstallPath(L"").c_str(), NULL);
-    // copy self to install path
-    std::wstring exePathW = getExePath();
-    std::wstring installPath = getInstallPath(L"cocogoat-control.exe");
-    if (!CopyFileW(exePathW.c_str(), installPath.c_str(), FALSE)) {
-        DWORD err = GetLastError();
-        // FormatMessage
-        LPWSTR lpMsgBuf = NULL;
-        DWORD dw = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&lpMsgBuf, 0, NULL);
-        if (dw == 0) {
-            lpMsgBuf = L"";
+static bool installError(const std::wstring &message) {
+    MessageBoxW(nullptr, message.c_str(), L"椰羊 · 霜华插件", MB_OK | MB_ICONERROR);
+    SetLastError(ERROR_INSTALL_FAILURE);
+    return false;
+}
+
+static bool regularFile(const std::wstring &path) {
+    DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
+}
+
+static std::wstring existingInstallation() {
+    bool recorded;
+    std::wstring directory = registeredDirectory(&recorded);
+    if (!recorded) {
+        directory = defaultDirectory();
+        if (!normalizeDirectory(directory) || !regularFile(joinPath(directory, programName))) return {};
+    }
+    return directory;
+}
+
+// Hold the handle through the copy and all registrations, including rollback.
+struct InstallationLock {
+    HANDLE handle = CreateMutexW(nullptr, FALSE, L"Global\\cocogoat-control-installation");
+    DWORD wait = handle ? WaitForSingleObject(handle, 0) : WAIT_FAILED;
+    bool acquired = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
+    ~InstallationLock() {
+        DWORD error = GetLastError();
+        if (acquired) ReleaseMutex(handle);
+        if (handle) CloseHandle(handle);
+        SetLastError(error);
+    }
+};
+
+// Stage the new executable beside the old one, so a failed copy cannot destroy a working install.
+bool runInstaller(std::wstring &directory) {
+    InstallationLock lock;
+    if (!lock.acquired) return installError(L"另一个安装或卸载程序正在运行。");
+    directory = existingInstallation();
+    bool fresh = directory.empty();
+    if (fresh) {
+        bool recorded;
+        registeredDirectory(&recorded);
+        if (recorded) return installError(L"已登记的安装位置不可用，请检查磁盘和文件夹。");
+        directory = defaultDirectory();
+        if (!chooseInstallDirectory(directory)) return false;
+        std::wstring error = validateInstallDirectory(directory);
+        if (!error.empty()) return installError(error);
+    }
+    bool newFolder = GetFileAttributesW(directory.c_str()) == INVALID_FILE_ATTRIBUTES;
+    int created = SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
+    if (created != ERROR_SUCCESS && created != ERROR_ALREADY_EXISTS)
+        return installError(L"无法创建安装文件夹：\n" + directory);
+
+    const std::wstring target = joinPath(directory, programName);
+    bool hadExe = regularFile(target);
+    bool replace = !samePath(getExePath(), target) && !(hadExe && sameInstalledBuild(target));
+    wchar_t staged[MAX_PATH]{}, backup[MAX_PATH]{};
+    bool copied = false;
+    bool useTask = samePath(directory, defaultDirectory());
+    bool taskCreated = false;
+    bool schemeAttempted = false;
+    bool registryAttempted = false;
+    std::wstring failure;
+    if (replace) {
+        if (GetTempFileNameW(directory.c_str(), L"cgs", 0, staged) &&
+            CopyFileW(getExePath().c_str(), staged, FALSE)) {
+            if (!hadExe)
+                copied = MoveFileW(staged, target.c_str()) != FALSE;
+            else if (GetTempFileNameW(directory.c_str(), L"cgb", 0, backup) &&
+                     CopyFileW(target.c_str(), backup, FALSE))
+                copied = MoveFileExW(staged, target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
         }
-        // to wstring
-        std::wstring errMsg = lpMsgBuf;
-        LocalFree(lpMsgBuf);
-        MessageBoxW(NULL, (L"复制文件到 " + installPath + L" 失败 (" + std::to_wstring(err) + L")：" + errMsg).c_str(), L"椰羊：安装失败", MB_OK | MB_ICONERROR);
-        exit(301);
-        return false;
+        if (!copied) failure = L"无法复制程序。请先退出正在运行的插件，并检查文件夹权限。";
     }
-    if (!registerScheduleTask(installPath)) {
-        return false;
+    if (failure.empty() && useTask) {
+        taskCreated = registerScheduleTask(target);
+        if (!taskCreated) failure = L"无法注册 Windows 计划任务。";
     }
-    if (!registerUrlScheme(installPath)) {
-        return false;
+    if (failure.empty()) {
+        schemeAttempted = true;
+        if (!registerUrlScheme(target)) failure = L"无法注册椰羊网页唤起协议。";
     }
-    if (!registerUninstallItem(installPath)) {
-        return false;
+    if (failure.empty()) {
+        registryAttempted = true;
+        if (!registerUninstallItem(directory)) failure = L"无法保存安装位置。";
     }
+    if (staged[0]) DeleteFileW(staged);
+    if (!failure.empty()) {
+        if (fresh) {
+            if (registryAttempted) removeUninstallItem();
+            if (schemeAttempted) removeScheme();
+            if (taskCreated) RunCmd(L"schtasks /delete /tn \"椰羊插件（以管理员身份运行）\" /F");
+        }
+        if (copied && hadExe && !MoveFileExW(backup, target.c_str(), MOVEFILE_REPLACE_EXISTING))
+            return installError(failure + L"\n上一版本保留在：\n" + backup);
+        if (copied && !hadExe) DeleteFileW(target.c_str());
+        if (backup[0]) DeleteFileW(backup);
+        if (newFolder) RemoveDirectoryW(directory.c_str());
+        return installError(failure + L"\n" + directory);
+    }
+    if (backup[0]) DeleteFileW(backup);
     return true;
 }
 
-int deleteDirectory(const std::wstring &path) {
-    std::vector<std::wstring::value_type> doubleNullTerminatedPath;
-    std::copy(path.begin(), path.end(), std::back_inserter(doubleNullTerminatedPath));
-    doubleNullTerminatedPath.push_back(L'\0');
-    doubleNullTerminatedPath.push_back(L'\0');
+static bool componentName(const std::wstring &name) {
+    return !name.empty() && name.size() < MAX_PATH && name != L"." && name != L".." &&
+           name.back() != L'.' && name.back() != L' ' &&
+           name.find_first_of(L"\\/:*?\"<>|") == name.npos;
+}
 
-    SHFILEOPSTRUCTW fileOperation;
-    fileOperation.wFunc = FO_DELETE;
-    fileOperation.pFrom = &doubleNullTerminatedPath[0];
-    fileOperation.fFlags = FOF_NO_UI | FOF_NOCONFIRMATION;
+void recordInstalledComponent(const std::wstring &path) {
+    std::wstring directory = registeredDirectory();
+    std::wstring name = path.substr(path.find_last_of(L'\\') + 1);
+    if (directory.empty() || !componentName(name) || !samePath(path, joinPath(directory, name))) return;
+    HKEY key;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, (std::wstring(uninstallKey) + L"\\Components").c_str(),
+                        0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+        DWORD installed = 1;
+        RegSetValueExW(key, name.c_str(), 0, REG_DWORD, (BYTE *)&installed, sizeof(installed));
+        RegCloseKey(key);
+    }
+}
 
-    return SHFileOperationW(&fileOperation);
+static bool removeInstalledFile(const std::wstring &path) {
+    if (DeleteFileW(path.c_str())) return true;
+    return GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND;
 }
 
 boolean runUninstall() {
-    // delete folder
-    std::wstring installDir = getInstallPath(L"");
-    int ret = deleteDirectory(installDir);
-    if (ret != 0) {
-        MessageBoxW(NULL, ToWString("卸载失败：[D]" + std::to_string(ret)).c_str(), L"错误", MB_OK | MB_ICONERROR);
-        return false;
-    }
-    // delete schtask
-    std::wstring cmd = ToWString("schtasks /delete /tn \"椰羊插件（以管理员身份运行）\" /F");
-    RunCmd(cmd);
+    InstallationLock lock;
+    if (!lock.acquired) return installError(L"另一个安装或卸载程序正在运行。");
+    std::wstring installDir = existingInstallation();
+    if (installDir.empty()) return installError(L"找不到已登记的安装位置。");
+    HKEY key;
+    LSTATUS status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, (std::wstring(uninstallKey) + L"\\Components").c_str(),
+                                  0, KEY_QUERY_VALUE, &key);
+    if (status == ERROR_SUCCESS) {
+        for (DWORD i = 0;; ++i) {
+            wchar_t name[MAX_PATH];
+            DWORD length = MAX_PATH;
+            status = RegEnumValueW(key, i, name, &length, nullptr, nullptr, nullptr, nullptr);
+            if (status == ERROR_NO_MORE_ITEMS) break;
+            if (status != ERROR_SUCCESS || !componentName(name) ||
+                !removeInstalledFile(joinPath(installDir, name))) {
+                RegCloseKey(key);
+                return installError(L"无法清理已安装的组件，请退出插件后重试。");
+            }
+        }
+        RegCloseKey(key);
+    } else if (status != ERROR_FILE_NOT_FOUND) return installError(L"无法读取组件记录。");
+    if (!removeInstalledFile(joinPath(installDir, programName)))
+        return installError(L"无法删除插件，请先退出运行中的插件。");
+    // RemoveDirectory only removes empty directories. User files and untracked legacy files survive.
+    RemoveDirectoryW(installDir.c_str());
+    if (samePath(installDir, defaultDirectory()))
+        RunCmd(L"schtasks /delete /tn \"椰羊插件（以管理员身份运行）\" /F");
     // remove scheme
     if (!removeScheme()) {
         DWORD err = GetLastError();
@@ -418,12 +561,12 @@ void preUninstall() {
     // get exe path
     std::wstring exePathW = getExePath();
     // if exe path is in TEMP path
-    if (exePathW.find(pathW) != std::wstring::npos) {
+    const std::wstring copyPath = pathW + L"cocogoat-control-uninstaller.exe";
+    if (samePath(exePathW, copyPath)) {
         askUninstall();
         deleteSelf();
     } else {
         // copy exe to TEMP path
-        std::wstring copyPath = pathW + L"cocogoat-control-uninstaller.exe";
         if (!CopyFileW(exePathW.c_str(), copyPath.c_str(), FALSE)) {
             DWORD err = GetLastError();
             MessageBoxW(NULL, (ToWString("卸载程序启动失败：") + std::to_wstring(err)).c_str(), ToWString("错误").c_str(), MB_OK | MB_ICONERROR);
@@ -434,50 +577,37 @@ void preUninstall() {
     }
 }
 
-// true for exit
-boolean autoElevate(PSTR lpCmdLine) {
+// Negative means continue to the desktop plugin; otherwise return the installer exit code.
+int autoElevate(PSTR lpCmdLine) {
     std::string cmd = lpCmdLine;
-    boolean noInstall = cmd.find("--stay") != std::string::npos && cmd.find("://") == std::string::npos;
-    boolean onlyInstall = cmd.find("--install") != std::string::npos && cmd.find("://") == std::string::npos;
-    // only install
-    if (onlyInstall) {
-        if (checkIfElevated()) {
-            runInstaller();
-        } else {
-            elevate(lpCmdLine);
+    bool fromUrl = cmd.find("://") != cmd.npos;
+    bool stay = !fromUrl && cmd.find("--stay") != cmd.npos;
+    bool installOnly = !fromUrl && cmd.find("--install") != cmd.npos;
+    bool uninstall = !fromUrl && cmd.find("--uninstall") != cmd.npos;
+    bool elevated = checkIfElevated();
+    if (uninstall) {
+        if (!elevated) return elevate(lpCmdLine) ? 0 : ERROR_CANCELLED;
+        if (stay) askUninstall();
+        else preUninstall();
+        return 0;
+    }
+    if (stay && !installOnly) return elevated ? -1 : (elevate(lpCmdLine) ? 0 : ERROR_CANCELLED);
+
+    std::wstring directory = existingInstallation();
+    std::wstring target = joinPath(directory, programName);
+    bool installedCopy = samePath(getExePath(), target);
+    if (!installOnly && installedCopy && elevated) return -1;
+    if (!elevated) {
+        if (!installOnly && !target.empty() && (installedCopy || sameInstalledBuild(target))) {
+            // Only the Program Files installation gets an unattended highest-privilege task.
+            // Custom roots may be writable by an ordinary user; launch them with the normal UAC prompt.
+            if (samePath(directory, defaultDirectory()) && (!installedCopy || queryScheduleTask()) &&
+                runScheduleTask(lpCmdLine)) return 0;
+            return elevate(lpCmdLine, target) ? 0 : ERROR_CANCELLED;
         }
-        return true;
+        return elevate(lpCmdLine) ? 0 : ERROR_CANCELLED;
     }
-    // only uninstall
-    if (cmd.find("--uninstall") != std::string::npos && cmd.find("://") == std::string::npos) {
-        if (checkIfElevated()) {
-            if (noInstall) {
-                askUninstall();
-            } else {
-                preUninstall();
-            }
-            return true;
-        } else {
-            return elevate(lpCmdLine);
-        }
-    }
-    if (checkIfElevated()) {
-        if (noInstall) {
-            return false;
-        } else if (isInProgramFiles()) {
-            return false;
-        } else if (!runInstaller()) {
-            return false;
-        }
-    }
-    if ((isInProgramFiles() ? queryScheduleTask() : checkInstall()) && runScheduleTask(lpCmdLine)) {
-        return true;
-    }
-    if (checkIfElevated()) {
-        return false;
-    }
-    if (!elevate(lpCmdLine)) {
-        MessageBoxW(NULL, L"由于需要进行版本更新，请以管理员权限运行本程序。", L"错误", MB_OK | MB_ICONERROR);
-    }
-    return true;
+    if (!runInstaller(directory)) return GetLastError() == ERROR_CANCELLED ? ERROR_INSTALL_USEREXIT : ERROR_INSTALL_FAILURE;
+    if (installOnly) return 0;
+    return elevate(lpCmdLine, joinPath(directory, programName)) ? 0 : ERROR_INSTALL_FAILURE;
 }

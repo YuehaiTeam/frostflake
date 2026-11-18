@@ -42,7 +42,7 @@ void ws_stopall();
 void tmr_run();
 void tmr_stop();
 boolean isFocusAssistEnabled();
-boolean autoElevate(PSTR lpCmdLine);
+int autoElevate(PSTR lpCmdLine);
 string readCmdFromPipe();
 bool verifyToken(unordered_map<string, string> &args);
 
@@ -57,9 +57,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
         SetProcessDpiAwarenessContext_(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    if (autoElevate(lpCmdLine)) {
-        return 0;
-    }
+    int installResult = autoElevate(lpCmdLine);
+    if (installResult >= 0) return installResult;
 
     string strCmdLine = lpCmdLine;
     if (strCmdLine == "") {
