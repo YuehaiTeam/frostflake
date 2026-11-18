@@ -365,31 +365,38 @@ struct InstallationLock {
 };
 
 // Stage the new executable beside the old one, so a failed copy cannot destroy a working install.
-bool runInstaller(std::wstring &directory) {
+std::wstring installFiles(const std::wstring &directory, bool fresh, const InstallProgress &progress) {
     InstallationLock lock;
-    if (!lock.acquired) return installError(L"另一个安装或卸载程序正在运行。");
-    directory = existingInstallation();
-    bool fresh = directory.empty();
+    if (!lock.acquired) return L"另一个安装或卸载程序正在运行。";
+    bool recorded;
+    auto current = registeredDirectory(&recorded);
+    if (!recorded) current = existingInstallation();
+    if (fresh ? (recorded || !current.empty()) : !samePath(current, directory))
+        return L"安装记录已变化，请关闭并重新打开安装程序。";
+    const bool useTask = samePath(directory, defaultDirectory());
+    const int totalSteps = useTask ? 5 : 4;
+    int started = 0;
+    auto beginStep = [&](InstallStep step) {
+        progress(started * 100 / totalSteps, step);
+        ++started;
+    };
+    beginStep(InstallStep::directory);
     if (fresh) {
-        bool recorded;
-        registeredDirectory(&recorded);
-        if (recorded) return installError(L"已登记的安装位置不可用，请检查磁盘和文件夹。");
-        directory = defaultDirectory();
-        if (!chooseInstallDirectory(directory)) return false;
-        std::wstring error = validateInstallDirectory(directory);
-        if (!error.empty()) return installError(error);
+        auto checkedPath = directory;
+        auto error = validateInstallDirectory(checkedPath);
+        if (!error.empty()) return error;
     }
     bool newFolder = GetFileAttributesW(directory.c_str()) == INVALID_FILE_ATTRIBUTES;
     int created = SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
     if (created != ERROR_SUCCESS && created != ERROR_ALREADY_EXISTS)
-        return installError(L"无法创建安装文件夹：\n" + directory);
+        return L"无法创建安装文件夹：\r\n" + directory;
 
+    beginStep(InstallStep::files);
     const std::wstring target = joinPath(directory, programName);
     bool hadExe = regularFile(target);
     bool replace = !samePath(getExePath(), target) && !(hadExe && sameInstalledBuild(target));
     wchar_t staged[MAX_PATH]{}, backup[MAX_PATH]{};
     bool copied = false;
-    bool useTask = samePath(directory, defaultDirectory());
     bool taskCreated = false;
     bool schemeAttempted = false;
     bool registryAttempted = false;
@@ -406,14 +413,17 @@ bool runInstaller(std::wstring &directory) {
         if (!copied) failure = L"无法复制程序。请先退出正在运行的插件，并检查文件夹权限。";
     }
     if (failure.empty() && useTask) {
+        beginStep(InstallStep::scheduledTask);
         taskCreated = registerScheduleTask(target);
         if (!taskCreated) failure = L"无法注册 Windows 计划任务。";
     }
     if (failure.empty()) {
+        beginStep(InstallStep::protocol);
         schemeAttempted = true;
         if (!registerUrlScheme(target)) failure = L"无法注册椰羊网页唤起协议。";
     }
     if (failure.empty()) {
+        beginStep(InstallStep::registration);
         registryAttempted = true;
         if (!registerUninstallItem(directory)) failure = L"无法保存安装位置。";
     }
@@ -425,13 +435,29 @@ bool runInstaller(std::wstring &directory) {
             if (taskCreated) RunCmd(L"schtasks /delete /tn \"椰羊插件（以管理员身份运行）\" /F");
         }
         if (copied && hadExe && !MoveFileExW(backup, target.c_str(), MOVEFILE_REPLACE_EXISTING))
-            return installError(failure + L"\n上一版本保留在：\n" + backup);
+            return failure + L"\r\n上一版本保留在：\r\n" + backup;
         if (copied && !hadExe) DeleteFileW(target.c_str());
         if (backup[0]) DeleteFileW(backup);
         if (newFolder) RemoveDirectoryW(directory.c_str());
-        return installError(failure + L"\n" + directory);
+        return failure + L"\r\n" + directory;
     }
     if (backup[0]) DeleteFileW(backup);
+    progress(100, InstallStep::done);
+    return {};
+}
+
+bool runInstaller(std::wstring &directory, bool interactive = true) {
+    directory = existingInstallation();
+    bool fresh = directory.empty();
+    if (fresh) {
+        bool recorded;
+        registeredDirectory(&recorded);
+        if (recorded) return installError(L"已登记的安装位置不可用，请检查磁盘和文件夹。");
+        directory = defaultDirectory();
+    }
+    if (fresh || interactive) return showInstallDialog(directory, fresh);
+    auto error = installFiles(directory, false, [](int, InstallStep) {});
+    if (!error.empty()) return installError(error);
     return true;
 }
 
@@ -617,7 +643,7 @@ int autoElevate(PSTR lpCmdLine) {
         }
         return elevate(lpCmdLine) ? 0 : ERROR_CANCELLED;
     }
-    if (!runInstaller(directory)) return GetLastError() == ERROR_CANCELLED ? ERROR_INSTALL_USEREXIT : ERROR_INSTALL_FAILURE;
+    if (!runInstaller(directory, !fromUrl)) return GetLastError() == ERROR_CANCELLED ? ERROR_INSTALL_USEREXIT : ERROR_INSTALL_FAILURE;
     if (installOnly) return 0;
     return elevate(lpCmdLine, joinPath(directory, programName)) ? 0 : ERROR_INSTALL_FAILURE;
 }
