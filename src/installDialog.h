@@ -1,5 +1,6 @@
 #pragma once
 
+#define IDI_COCOGOAT 1
 #define IDD_INSTALL 300
 #define IDI_INSTALL_LOGO 301
 #define IDC_INSTALL_HEADER 302

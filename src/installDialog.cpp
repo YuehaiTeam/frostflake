@@ -173,7 +173,7 @@ INT_PTR CALLBACK procedure(HWND dialog, UINT message, WPARAM wParam, LPARAM lPar
             SendMessageW(bar, PBM_SETBKCOLOR, 0, RGB(238, 238, 238));
         }
         SendMessageW(dialog, WM_SETICON, ICON_SMALL,
-                     (LPARAM)LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1)));
+                     (LPARAM)LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_COCOGOAT)));
         SendMessageW(dialog, DM_SETDEFID, IDOK, 0);
         SetFocus(GetDlgItem(dialog, IDOK));
         return FALSE;

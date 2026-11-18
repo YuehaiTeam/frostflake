@@ -3,6 +3,7 @@
 #include <string>
 
 #include <windows.h>
+#include <commctrl.h>
 
 #include "../version.h"
 #include <shlobj_core.h>
@@ -485,11 +486,62 @@ static bool removeInstalledFile(const std::wstring &path) {
     return GetLastError() == ERROR_FILE_NOT_FOUND || GetLastError() == ERROR_PATH_NOT_FOUND;
 }
 
+namespace {
+struct WindowIcons {
+    HICON smallIcon{};
+    HICON largeIcon{};
+};
+
+HRESULT CALLBACK setUninstallIcons(HWND dialog, UINT notification, WPARAM, LPARAM, LONG_PTR data) {
+    if (notification == TDN_CREATED) {
+        const auto &icons = *reinterpret_cast<const WindowIcons *>(data);
+        SendMessageW(dialog, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icons.smallIcon));
+        SendMessageW(dialog, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(icons.largeIcon));
+    }
+    return S_OK;
+}
+
+constexpr int uninstallButton = 1000;
+
+int showUninstallDialog(const std::wstring &message, bool confirm = false) {
+    const TASKDIALOG_BUTTON buttons[] = {{uninstallButton, L"卸载"}, {1001, L"取消"}};
+    TASKDIALOGCONFIG dialog{sizeof(dialog)};
+    dialog.hInstance = GetModuleHandleW(nullptr);
+    dialog.pszWindowTitle = L"卸载 - 椰羊";
+    dialog.pszMainInstruction = message.c_str();
+    dialog.pszMainIcon = MAKEINTRESOURCEW(IDI_COCOGOAT);
+    dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+    if (confirm) {
+        dialog.dwFlags |= TDF_USE_COMMAND_LINKS;
+        dialog.pButtons = buttons;
+        dialog.cButtons = _countof(buttons);
+    } else {
+        dialog.dwCommonButtons = TDCBF_OK_BUTTON;
+    }
+    WindowIcons icons;
+    LoadIconMetric(dialog.hInstance, dialog.pszMainIcon, LIM_SMALL, &icons.smallIcon);
+    LoadIconMetric(dialog.hInstance, dialog.pszMainIcon, LIM_LARGE, &icons.largeIcon);
+    dialog.pfCallback = setUninstallIcons;
+    dialog.lpCallbackData = reinterpret_cast<LONG_PTR>(&icons);
+    int clicked = 0;
+    HRESULT result = TaskDialogIndirect(&dialog, &clicked, nullptr, nullptr);
+    if (icons.smallIcon) DestroyIcon(icons.smallIcon);
+    if (icons.largeIcon) DestroyIcon(icons.largeIcon);
+    return SUCCEEDED(result) ? clicked : 0;
+}
+
+bool uninstallError(const std::wstring &message) {
+    showUninstallDialog(message);
+    SetLastError(ERROR_INSTALL_FAILURE);
+    return false;
+}
+}
+
 boolean runUninstall() {
     InstallationLock lock;
-    if (!lock.acquired) return installError(L"另一个安装或卸载程序正在运行。");
+    if (!lock.acquired) return uninstallError(L"另一个安装或卸载程序正在运行。");
     std::wstring installDir = existingInstallation();
-    if (installDir.empty()) return installError(L"找不到已登记的安装位置。");
+    if (installDir.empty()) return uninstallError(L"找不到已登记的安装位置。");
     HKEY key;
     LSTATUS status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, (std::wstring(uninstallKey) + L"\\Components").c_str(),
                                   0, KEY_QUERY_VALUE, &key);
@@ -502,13 +554,13 @@ boolean runUninstall() {
             if (status != ERROR_SUCCESS || !componentName(name) ||
                 !removeInstalledFile(joinPath(installDir, name))) {
                 RegCloseKey(key);
-                return installError(L"无法清理已安装的组件，请退出插件后重试。");
+                return uninstallError(L"无法清理已安装的组件，请退出插件后重试。");
             }
         }
         RegCloseKey(key);
-    } else if (status != ERROR_FILE_NOT_FOUND) return installError(L"无法读取组件记录。");
+    } else if (status != ERROR_FILE_NOT_FOUND) return uninstallError(L"无法读取组件记录。");
     if (!removeInstalledFile(joinPath(installDir, programName)))
-        return installError(L"无法删除插件，请先退出运行中的插件。");
+        return uninstallError(L"无法删除插件，请先退出运行中的插件。");
     // RemoveDirectory only removes empty directories. User files and untracked legacy files survive.
     RemoveDirectoryW(installDir.c_str());
     if (samePath(installDir, defaultDirectory()))
@@ -516,45 +568,19 @@ boolean runUninstall() {
     // remove scheme
     if (!removeScheme()) {
         DWORD err = GetLastError();
-        MessageBoxW(NULL, (ToWString("卸载失败：[S]") + std::to_wstring(err)).c_str(), L"错误", MB_OK | MB_ICONERROR);
-        return false;
+        return uninstallError(L"卸载失败：[S]" + std::to_wstring(err));
     }
     // remove uninstall item
     if (!removeUninstallItem()) {
         DWORD err = GetLastError();
-        MessageBoxW(NULL, (ToWString("卸载失败：[U]") + std::to_wstring(err)).c_str(), L"错误", MB_OK | MB_ICONERROR);
-        return false;
+        return uninstallError(L"卸载失败：[U]" + std::to_wstring(err));
     }
     return true;
 }
 void askUninstall() {
-    std::wstring title = L"卸载 - 椰羊";
-    std::wstring header = L"您确定要卸载椰羊·霜华插件，并删除相关的所有组件吗？";
-    std::wstring allowstr = L"卸载";
-    std::wstring denystr = L"取消";
-
-    TASKDIALOGCONFIG tdc = {sizeof(TASKDIALOGCONFIG)};
-
-    TASKDIALOG_BUTTON aCustomButtons[] = {
-        {1000, allowstr.c_str()},
-        {1001, denystr.c_str()}};
-
-    tdc.hwndParent = NULL;
-    tdc.dwFlags = TDF_USE_COMMAND_LINKS;
-    tdc.pButtons = aCustomButtons;
-    tdc.cButtons = 2;
-    tdc.pszWindowTitle = title.c_str();
-    tdc.pszMainIcon = TD_WARNING_ICON;
-    tdc.pszMainInstruction = header.c_str();
-
-    int nClickedBtn;
-    BOOL nVerificationChecked;
-    HRESULT hr = TaskDialogIndirect(&tdc, &nClickedBtn, NULL, &nVerificationChecked);
-    if (SUCCEEDED(hr) && 1000 == nClickedBtn) {
-        if (runUninstall()) {
-            MessageBoxW(NULL, L"卸载成功！", L"卸载 - 椰羊", MB_OK | MB_ICONINFORMATION);
-        }
-    }
+    if (showUninstallDialog(L"您确定要卸载椰羊·霜华插件，并删除相关的所有组件吗？", true) == uninstallButton
+        && runUninstall())
+        showUninstallDialog(L"卸载成功！");
 }
 
 boolean deleteSelf() {
@@ -579,8 +605,7 @@ boolean deleteSelf() {
     HANDLE hFile = CreateFileW(batPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         DWORD err = GetLastError();
-        MessageBoxW(NULL, (ToWString("卸载失败：") + std::to_wstring(err)).c_str(), ToWString("错误").c_str(), MB_OK | MB_ICONERROR);
-        return false;
+        return uninstallError(L"卸载失败：" + std::to_wstring(err));
     }
     DWORD written;
     WriteFile(hFile, str.c_str(), str.length(), &written, NULL);
@@ -605,7 +630,7 @@ void preUninstall() {
         // copy exe to TEMP path
         if (!CopyFileW(exePathW.c_str(), copyPath.c_str(), FALSE)) {
             DWORD err = GetLastError();
-            MessageBoxW(NULL, (ToWString("卸载程序启动失败：") + std::to_wstring(err)).c_str(), ToWString("错误").c_str(), MB_OK | MB_ICONERROR);
+            uninstallError(L"卸载程序启动失败：" + std::to_wstring(err));
             return;
         }
         // run copyed exe

@@ -1,7 +1,7 @@
 #pragma code_page(65001)
 #include <winres.h>
 #include "src/installDialog.h"
-1 ICON DISCARDABLE "cocogoat.ico"
+IDI_COCOGOAT ICON DISCARDABLE "cocogoat.ico"
 IDI_INSTALL_LOGO ICON "installer-logo.ico"
 302 RCDATA "installer-logo.LICENSE"
 
