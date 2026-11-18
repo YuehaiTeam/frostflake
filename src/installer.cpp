@@ -17,6 +17,7 @@ std::wstring ToWString(const std::string &str);
 namespace {
 const wchar_t uninstallKey[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\cocogoat-control";
 const wchar_t programName[] = L"cocogoat-control.exe";
+const wchar_t directoryName[] = L"cocogoat-control";
 
 std::wstring joinPath(const std::wstring &root, const std::wstring &leaf) {
     return root.empty() || leaf.empty() ? root : root + L"\\" + leaf;
@@ -25,7 +26,7 @@ std::wstring joinPath(const std::wstring &root, const std::wstring &leaf) {
 std::wstring defaultDirectory() {
     wchar_t folder[MAX_PATH]{};
     if (!SHGetSpecialFolderPathW(nullptr, folder, CSIDL_PROGRAM_FILES, FALSE)) return {};
-    return joinPath(folder, L"cocogoat-control");
+    return installDirectoryForSelection(folder);
 }
 
 bool samePath(const std::wstring &a, const std::wstring &b) {
@@ -68,12 +69,21 @@ std::wstring registeredDirectory(bool *hasRecord = nullptr) {
 }
 }
 
+std::wstring installDirectoryForSelection(std::wstring path) {
+    for (auto &c : path) if (c == L'/') c = L'\\';
+    if (path.size() < 3 || path.substr(1, 2) != L":\\") return {};
+    while (path.size() > 3 && path.back() == L'\\') path.pop_back();
+    if (samePath(path.substr(path.find_last_of(L'\\') + 1), directoryName)) return path;
+    if (path.back() != L'\\') path += L'\\';
+    return path + directoryName;
+}
+
 std::wstring validateInstallDirectory(std::wstring &path) {
-    if (!normalizeDirectory(path))
-        return L"请输入本地磁盘上有效的文件夹路径。不能使用盘符根目录、链接目录或过长的路径。";
+    if (!normalizeDirectory(path) || !samePath(path.substr(path.find_last_of(L'\\') + 1), directoryName))
+        return L"请选择有效的本地安装位置。安装目标必须是 cocogoat-control 文件夹，且路径不能过长或经过链接目录。";
     DWORD attrs = GetFileAttributesW(path.c_str());
     if (attrs != INVALID_FILE_ATTRIBUTES && !PathIsDirectoryEmptyW(path.c_str()))
-        return L"此文件夹已有其他文件。请选择空文件夹，或在路径末尾添加新的文件夹名称。";
+        return L"目标 cocogoat-control 文件夹已有其他文件，请选择另一个上级文件夹。";
     return {};
 }
 

@@ -6,6 +6,14 @@ namespace {
 const COLORREF theme = RGB(64, 158, 255);
 const COLORREF themeDark = RGB(0, 122, 204);
 
+std::wstring enteredPath(HWND dialog) {
+    HWND edit = GetDlgItem(dialog, IDC_INSTALL_PATH);
+    std::wstring text(GetWindowTextLengthW(edit) + 1, L'\0');
+    int length = GetWindowTextW(edit, &text[0], static_cast<int>(text.size()));
+    text.resize(length);
+    return text;
+}
+
 void browse(HWND owner) {
     IFileOpenDialog *picker = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -16,12 +24,13 @@ void browse(HWND owner) {
     FILEOPENDIALOGOPTIONS options;
     if (SUCCEEDED(picker->GetOptions(&options)) &&
         SUCCEEDED(picker->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM))) {
-        picker->SetTitle(L"选择安装霜华插件的空文件夹");
+        picker->SetTitle(L"选择安装霜华插件的上级文件夹");
         IShellItem *item = nullptr;
         if (SUCCEEDED(picker->Show(owner)) && SUCCEEDED(picker->GetResult(&item))) {
             PWSTR path = nullptr;
             if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-                SetDlgItemTextW(owner, IDC_INSTALL_PATH, path);
+                auto destination = installDirectoryForSelection(path);
+                SetDlgItemTextW(owner, IDC_INSTALL_PATH, destination.empty() ? path : destination.c_str());
                 CoTaskMemFree(path);
             }
             item->Release();
@@ -88,13 +97,21 @@ INT_PTR CALLBACK procedure(HWND dialog, UINT message, WPARAM wParam, LPARAM lPar
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
+        case IDC_INSTALL_PATH:
+            if (HIWORD(wParam) == EN_CHANGE) {
+                const auto text = enteredPath(dialog);
+                const auto destination = installDirectoryForSelection(text);
+                const auto hint = destination.empty() || text == destination
+                    ? std::wstring(L"选择磁盘或上级文件夹，即可自动补全 cocogoat-control。")
+                    : L"将安装到：" + destination;
+                SetDlgItemTextW(dialog, IDC_INSTALL_DESTINATION, hint.c_str());
+            }
+            break;
         case IDC_INSTALL_BROWSE:
             browse(dialog);
             return TRUE;
         case IDOK: {
-            wchar_t text[MAX_PATH + 1]{};
-            GetDlgItemTextW(dialog, IDC_INSTALL_PATH, text, MAX_PATH + 1);
-            std::wstring path = text;
+            std::wstring path = installDirectoryForSelection(enteredPath(dialog));
             std::wstring error = validateInstallDirectory(path);
             if (!error.empty()) {
                 MessageBoxW(dialog, error.c_str(), L"请选择安装位置", MB_OK | MB_ICONINFORMATION);
