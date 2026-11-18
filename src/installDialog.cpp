@@ -24,7 +24,7 @@ void browse(HWND owner) {
     FILEOPENDIALOGOPTIONS options;
     if (SUCCEEDED(picker->GetOptions(&options)) &&
         SUCCEEDED(picker->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM))) {
-        picker->SetTitle(L"选择安装霜华插件的上级文件夹");
+        picker->SetTitle(L"选择上级文件夹");
         IShellItem *item = nullptr;
         if (SUCCEEDED(picker->Show(owner)) && SUCCEEDED(picker->GetResult(&item))) {
             PWSTR path = nullptr;
@@ -63,7 +63,9 @@ void paintControl(HWND dialog, const DRAWITEMSTRUCT &item) {
         HFONT heading = CreateFontIndirectW(&title);
         HGDIOBJ previous = SelectObject(dc, heading);
         rect.left = left + height;
-        DrawTextW(dc, L"椰羊 · 霜华插件", -1, &rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        wchar_t name[32]{};
+        GetWindowTextW(item.hwndItem, name, _countof(name));
+        DrawTextW(dc, name, -1, &rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         SelectObject(dc, previous);
         DeleteObject(heading);
     } else {
@@ -101,10 +103,9 @@ INT_PTR CALLBACK procedure(HWND dialog, UINT message, WPARAM wParam, LPARAM lPar
             if (HIWORD(wParam) == EN_CHANGE) {
                 const auto text = enteredPath(dialog);
                 const auto destination = installDirectoryForSelection(text);
-                const auto hint = destination.empty() || text == destination
-                    ? std::wstring(L"选择磁盘或上级文件夹，即可自动补全 cocogoat-control。")
-                    : L"将安装到：" + destination;
-                SetDlgItemTextW(dialog, IDC_INSTALL_DESTINATION, hint.c_str());
+                const auto preview = !destination.empty() && destination != text
+                    ? L"将安装到：" + destination : std::wstring{};
+                SetDlgItemTextW(dialog, IDC_INSTALL_DESTINATION, preview.c_str());
             }
             break;
         case IDC_INSTALL_BROWSE:
